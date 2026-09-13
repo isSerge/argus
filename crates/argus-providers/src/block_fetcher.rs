@@ -30,29 +30,6 @@ impl FetchConfig {
     }
 }
 
-/// Fetches all necessary data for a single block (used by legacy paths that
-/// need per-block logs, e.g. the live ingestor when no range fetch is desired).
-pub async fn fetch_single_block_data<D: DataSource + ?Sized>(
-    data_source: &D,
-    needs_receipts: bool,
-    block_num: u64,
-    concurrency: usize,
-) -> Result<BlockData, DataSourceError> {
-    let (block, logs) = data_source.fetch_block_core_data(block_num).await?;
-    let receipts = if needs_receipts {
-        let tx_hashes: Vec<_> = block.transactions.hashes().collect();
-        if tx_hashes.is_empty() {
-            HashMap::new()
-        } else {
-            data_source.fetch_receipts(&tx_hashes, concurrency).await?
-        }
-    } else {
-        HashMap::new()
-    };
-
-    Ok(BlockData::from_raw_data(block, receipts, logs))
-}
-
 /// Fetches all blocks (without logs) for a range concurrently.
 async fn fetch_blocks_only<D: DataSource + ?Sized>(
     data_source: &D,

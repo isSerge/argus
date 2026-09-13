@@ -4,7 +4,10 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use alloy::rpc::types::Block;
+use alloy::{
+    rpc::types::Block,
+    transports::{RpcError, TransportErrorKind},
+};
 use argus_core::{
     models::{BlockData, Log},
     providers::traits::{DataSource, DataSourceError},
@@ -79,6 +82,17 @@ fn halve_range((start, end): (u64, u64)) -> [(u64, u64); 2] {
 
 type ChunkOutcome = ((u64, u64), Result<Vec<Log>, DataSourceError>);
 
+/// Whether the provider rejected the query itself (result too large, query
+/// timeout) — errors a smaller block range can plausibly fix. Only JSON-RPC
+/// error responses (`ErrorResp`) qualify: transport failures were already
+/// retried by `RetryBackoffLayer` and cannot improve with a smaller range.
+pub(crate) fn is_query_rejection(err: &DataSourceError) -> bool {
+    let DataSourceError::Provider(inner) = err else { return false };
+    inner
+        .downcast_ref::<RpcError<TransportErrorKind>>()
+        .is_some_and(|rpc| matches!(rpc, RpcError::ErrorResp(_)))
+}
+
 /// Fetches a batch of sub-ranges concurrently, tagging each result with its
 /// originating range.
 async fn fetch_batch<D: DataSource + ?Sized>(
@@ -102,15 +116,11 @@ async fn fetch_batch<D: DataSource + ?Sized>(
 /// a large range never opens more simultaneous `eth_getLogs` connections than
 /// the configured fetch concurrency limit.
 ///
-/// When a sub-range request fails, the provider is usually rejecting the
-/// response size (result count / payload) rather than the block range itself.
-/// The failing range is therefore halved and both halves are re-enqueued for
-/// retry with priority, until they either succeed or shrink to a single block;
-/// a single-block failure is propagated as-is, which bounds the halving and
-/// guarantees termination.
-///
-/// When `chunk_size == 0` both chunking and adaptive shrinking are disabled:
-/// the entire range is covered by a single RPC call (legacy behaviour).
+/// A query-rejected sub-range (oversized result set) is halved and both
+/// halves are retried with priority, down to a single block; any other error
+/// — or a single-block failure — propagates as-is, which bounds the halving
+/// and guarantees termination. `chunk_size == 0` issues a single unchunked
+/// call (legacy behaviour).
 async fn fetch_logs_chunked<D: DataSource + ?Sized>(
     data_source: &D,
     from_block: u64,
@@ -134,6 +144,7 @@ async fn fetch_logs_chunked<D: DataSource + ?Sized>(
             match result {
                 Ok(chunk_logs) => logs.extend(chunk_logs),
                 Err(e) if range.0 == range.1 => return Err(e),
+                Err(e) if !is_query_rejection(&e) => return Err(e),
                 Err(e) => {
                     let halves = halve_range(range);
                     tracing::warn!(
@@ -148,7 +159,6 @@ async fn fetch_logs_chunked<D: DataSource + ?Sized>(
             }
         }
 
-        // Shrunk ranges are retried ahead of the remaining pending chunks.
         retries.extend(pending);
         pending = retries;
     }
@@ -168,9 +178,8 @@ async fn fetch_logs_chunked<D: DataSource + ?Sized>(
 /// from providers that reject wide log windows (e.g. Alchemy, Ankr). Set to
 /// `0` to disable chunking (single call, legacy behaviour).
 ///
-/// Sub-ranges that a provider rejects (e.g. response too large) are
-/// automatically halved and retried — down to a single block — before the
-/// error is surfaced.
+/// Rejected sub-ranges are automatically halved and retried, down to a
+/// single block.
 ///
 /// Returns an error if any block fails to fetch. This ensures consistent
 /// behavior across all components and prevents gaps in block processing.
@@ -232,25 +241,40 @@ pub async fn fetch_blocks_concurrent<D: DataSource + ?Sized>(
 #[cfg(test)]
 mod tests {
     use std::{
+        borrow::Cow,
         io,
         sync::{Arc, Mutex},
     };
 
+    use alloy::{
+        rpc::json_rpc::ErrorPayload,
+        transports::{RpcError, TransportErrorKind},
+    };
     use argus_core::{providers::traits::MockDataSource, test_utils::BlockBuilder};
 
     use super::*;
 
     type CallLog = Arc<Mutex<Vec<(u64, u64, bool)>>>;
 
-    fn provider_error() -> DataSourceError {
-        DataSourceError::Provider(Box::new(io::Error::other(
-            "query returned more than 10000 results",
-        )))
+    fn query_rejection() -> DataSourceError {
+        let payload = ErrorPayload::<Box<serde_json::value::RawValue>> {
+            code: -32005,
+            message: Cow::Borrowed("query returned more than 10000 results"),
+            data: None,
+        };
+        DataSourceError::Provider(Box::new(RpcError::<TransportErrorKind>::ErrorResp(payload)))
     }
 
-    /// Mocks `fetch_logs_for_range` so that any range spanning
-    /// `fail_width` or more blocks fails; narrower ranges succeed. Every call
-    /// is recorded as `(from, to, ok)`.
+    fn transport_error() -> DataSourceError {
+        DataSourceError::Provider(Box::new(TransportErrorKind::custom_str("connection refused")))
+    }
+
+    fn io_error() -> DataSourceError {
+        DataSourceError::Provider(Box::new(io::Error::other("disk error")))
+    }
+
+    /// Ranges spanning `fail_width`+ blocks fail with a query rejection;
+    /// calls are recorded as `(from, to, ok)`.
     fn mock_source(fail_width: u64, calls: CallLog) -> MockDataSource {
         let mut mock = MockDataSource::new();
         mock.expect_fetch_logs_for_range().times(..).returning({
@@ -258,7 +282,20 @@ mod tests {
             move |from, to| {
                 let ok = to - from < fail_width;
                 calls.lock().unwrap().push((from, to, ok));
-                if ok { Ok(Vec::new()) } else { Err(provider_error()) }
+                if ok { Ok(Vec::new()) } else { Err(query_rejection()) }
+            }
+        });
+        mock
+    }
+
+    /// Always fails with `error`; calls are recorded as `(from, to, false)`.
+    fn failing_source(error: fn() -> DataSourceError, calls: CallLog) -> MockDataSource {
+        let mut mock = MockDataSource::new();
+        mock.expect_fetch_logs_for_range().times(..).returning({
+            let calls = calls.clone();
+            move |from, to| {
+                calls.lock().unwrap().push((from, to, false));
+                Err(error())
             }
         });
         mock
@@ -281,8 +318,8 @@ mod tests {
 
     #[tokio::test]
     async fn logs_chunked_splits_by_chunk_size() {
+        // No range ever fails, so nothing is shrunk.
         let calls: CallLog = Arc::new(Mutex::new(Vec::new()));
-        // fail_width = u64::MAX: no range ever fails, requests are never shrunk.
         let source = mock_source(u64::MAX, calls.clone());
 
         let logs = fetch_logs_chunked(&source, 0, 9, 4, 2).await.unwrap();
@@ -295,8 +332,8 @@ mod tests {
 
     #[tokio::test]
     async fn logs_chunked_halves_oversized_ranges() {
-        // Ranges spanning >= 2 blocks are rejected by the provider; the fetcher
-        // must halve them down to single blocks and still cover everything.
+        // Provider rejects ranges spanning >= 2 blocks; halving must still
+        // cover every block.
         let calls: CallLog = Arc::new(Mutex::new(Vec::new()));
         let source = mock_source(2, calls.clone());
 
@@ -309,9 +346,9 @@ mod tests {
 
     #[tokio::test]
     async fn logs_chunked_propagates_error_at_single_block_floor() {
-        // fail_width 0: every range, including single blocks, fails.
+        // Single-block failures cannot shrink further and propagate.
         let calls: CallLog = Arc::new(Mutex::new(Vec::new()));
-        let source = mock_source(0, calls.clone());
+        let source = failing_source(query_rejection, calls.clone());
 
         let err = fetch_logs_chunked(&source, 0, 7, 4, 1).await.unwrap_err();
 
@@ -324,12 +361,36 @@ mod tests {
     #[tokio::test]
     async fn logs_chunked_zero_disables_adaptivity() {
         let calls: CallLog = Arc::new(Mutex::new(Vec::new()));
-        let source = mock_source(0, calls.clone());
+        let source = failing_source(query_rejection, calls.clone());
 
         let result = fetch_logs_chunked(&source, 0, 99, 0, 4).await;
 
         assert!(result.is_err());
         assert_eq!(recorded(&calls), vec![(0, 99, false)], "exactly one unchunked call");
+    }
+
+    #[tokio::test]
+    async fn logs_chunked_propagates_transport_errors_without_shrinking() {
+        // A smaller range cannot help transport failures; surface immediately.
+        let calls: CallLog = Arc::new(Mutex::new(Vec::new()));
+        let source = failing_source(transport_error, calls.clone());
+
+        let err = fetch_logs_chunked(&source, 0, 99, 4, 4).await.unwrap_err();
+
+        assert!(err.to_string().contains("connection refused"));
+        assert_eq!(recorded(&calls).len(), 4, "one batch issued, nothing shrunk or retried");
+    }
+
+    #[tokio::test]
+    async fn logs_chunked_propagates_non_rpc_errors_without_shrinking() {
+        // Unknown error types surface as-is.
+        let calls: CallLog = Arc::new(Mutex::new(Vec::new()));
+        let source = failing_source(io_error, calls.clone());
+
+        let err = fetch_logs_chunked(&source, 0, 99, 4, 4).await.unwrap_err();
+
+        assert!(err.to_string().contains("disk error"));
+        assert_eq!(recorded(&calls).len(), 4, "one batch issued, nothing shrunk or retried");
     }
 
     #[tokio::test]
@@ -342,8 +403,7 @@ mod tests {
             .times(..)
             .returning(|n| Ok(BlockBuilder::new().number(n).build()));
 
-        // Chunk 4 vs a 4-block range: (10,13) is rejected, halves (10,11) and
-        // (12,13) succeed.
+        // Chunk 4 vs a 4-block range: (10,13) fails, halves succeed.
         let block_data =
             fetch_blocks_concurrent(&source, false, 10, 13, FetchConfig::new(2, 4)).await.unwrap();
 

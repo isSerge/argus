@@ -15,4 +15,5 @@ thiserror.workspace = true
 
 [dev-dependencies]
 argus-core = { workspace = true, features = ["test-utils"] }
+serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -88,9 +88,16 @@ type ChunkOutcome = ((u64, u64), Result<Vec<Log>, DataSourceError>);
 /// retried by `RetryBackoffLayer` and cannot improve with a smaller range.
 pub(crate) fn is_query_rejection(err: &DataSourceError) -> bool {
     let DataSourceError::Provider(inner) = err else { return false };
-    inner
-        .downcast_ref::<RpcError<TransportErrorKind>>()
-        .is_some_and(|rpc| matches!(rpc, RpcError::ErrorResp(_)))
+    let Some(rpc) = inner.downcast_ref::<RpcError<TransportErrorKind>>() else { return false };
+
+    match rpc {
+        // Match common "query too large" / "timeout" style provider rejections.
+        RpcError::ErrorResp(payload) => {
+            let msg = payload.message.as_ref();
+            msg.contains("more than") && msg.contains("results") || msg.contains("timeout")
+        }
+        _ => false,
+    }
 }
 
 /// Fetches a batch of sub-ranges concurrently, tagging each result with its

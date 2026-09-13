@@ -745,4 +745,20 @@ mod tests {
         assert!(matches!(result, Err(DataSourceError::Provider(_))));
         assert!(result.unwrap_err().to_string().contains("getLogs failed"));
     }
+
+    #[tokio::test]
+    async fn test_fetch_logs_for_range_provider_rejection_classifies_as_shrinkable() {
+        // Provider rejections must classify as shrinkable query rejections.
+        let (provider, asserter) = mock_provider();
+        let transfer_topic =
+            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
+        asserter.push_failure_msg("query returned more than 10000 results");
+
+        let data_source = EvmRpcSource::new(provider, make_global_topic_registry(transfer_topic));
+
+        let err = data_source.fetch_logs_for_range(100, 200).await.unwrap_err();
+
+        assert!(err.to_string().contains("query returned more than 10000 results"));
+        assert!(crate::block_fetcher::is_query_rejection(&err));
+    }
 }

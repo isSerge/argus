@@ -6,7 +6,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-alloy = { version = "1.0.37", features = ["essentials"] }
+alloy = { version = "1.0.37", features = ["essentials", "json-rpc"] }
 argus-core = { path = "crates/argus-core" }
 argus-dispatch = { path = "crates/argus-dispatch" }
 argus-providers = { path = "crates/argus-providers" }

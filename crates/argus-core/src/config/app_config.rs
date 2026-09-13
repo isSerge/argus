@@ -84,6 +84,9 @@ pub struct AppConfig {
     /// When `block_chunk_size` exceeds this value the log-fetch is split into
     /// multiple sub-range requests that are issued in parallel. Set to `0` to
     /// disable chunking and always issue a single call (legacy behaviour).
+    ///
+    /// Rejected sub-ranges are automatically halved and retried, down to a
+    /// single block.
     #[serde(default = "default_log_chunk_size")]
     pub log_chunk_size: u64,
 

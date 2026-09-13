@@ -29,6 +29,8 @@ block_chunk_size: 5
 polling_interval_ms: 10000
 # Optional: expected block time of the target chain (ms). See table below.
 # expected_block_time_ms: 2000
+# Required: pick a value appropriate for your chain
+# (see "Confirmation Depth Per Chain" below).
 confirmation_blocks: 12
 
 # API server configuration
@@ -57,10 +59,37 @@ server:
 | `log_chunk_size` | Maximum number of blocks covered by a single `eth_getLogs` RPC call. When `block_chunk_size` exceeds this, the log fetch is split into parallel sub-range requests. Set to `0` to disable chunking. | `2000` |
 | `polling_interval_ms` | The interval in milliseconds to poll for new blocks. Also used as the backoff after ingestion errors. **This field is required.** | (none) |
 | `expected_block_time_ms` | Optional expected block time of the target chain in milliseconds (e.g. Ethereum `12000`, BSC `3000`, Polygon/Base `2000`, Arbitrum `1000`). When set, live polling tracks the chain: once caught up, Argus polls at ~this interval (clamped to [250ms, `polling_interval_ms`]) so alert latency stays ~one block on fast chains. | unset |
-| `confirmation_blocks` | Number of blocks to wait for before processing to protect against reorgs. A higher number is safer but introduces more latency. **This field is required.** | (none) |
+| `confirmation_blocks` | Number of blocks to wait before processing a block, to protect against reorgs. Higher is safer but adds latency. **This field is required** — pick a value appropriate for your chain (see [table below](#confirmation-depth-per-chain)). | (none) |
 | `notification_channel_capacity` | The capacity of the internal channel for sending notifications. | `1024` |
 | `shutdown_timeout` | The maximum time in seconds to wait for a graceful shutdown. | `30` |
 | `aggregation_check_interval_secs` | The interval in seconds to check for aggregated matches for action with policies. | `5` |
+
+### Confirmation Depth Per Chain
+
+`confirmation_blocks` is a **reorg-safety** knob, not a finality guarantee: Argus only processes
+blocks at or below `head - confirmation_blocks`. Because block times and finality rules differ
+per chain, the same number means very different things in practice — 12 blocks is ~2.4 min on
+Ethereum, ~36 s on BSC, ~24 s on Polygon (where true finality only arrives with the L1
+checkpoint, anyway). The single knob deliberately conflates *reorg-safety* with *finality*, so
+Argus requires you to set it explicitly — the table below gives recommended starting points;
+the final depth is yours to choose.
+
+| `network_id` aliases | Recommended | ≈ Wall-clock | Rationale |
+| :--- | :--- | :--- | :--- |
+| `ethereum`, `mainnet`, `eth` | `12` | ~2.4 min | Comfortably inside Ethereum's ~12.8 min finality window; covers typical reorgs. |
+| `sepolia`, `holesky`, `hoodi` | `12` | ~2.4 min | Same consensus rules as mainnet. |
+| `bsc`, `bnb`, `bnb-smart-chain` | `15` | ~45 s | Covers the fast-finality window and BSC's historical multi-block reorgs. |
+| `polygon`, `matic`, `bor` | `128` | ~4.3 min | Deep reorgs (~100 blocks) have occurred on Bor; true finality is only the L1 checkpoint. If you need checkpoint-grade safety, wait for checkpoints instead of a bigger number. |
+| `arbitrum`, `arbitrum-one` | `20` | ~5 s | Reorgs essentially don't happen; this only pads against sequencer-feed quirks. |
+| `base`, `optimism`, `op-mainnet` | `15` | ~30 s | OP-stack soft confirmations are sequencer-ordered and effectively stable. |
+| `gnosis`, `xdai` | `12` | ~1 min | PoS with rare, shallow reorgs. |
+| `avalanche`, `avax`, `c-chain` | `5` | ~5–10 s | Near-instant Snowman finality. |
+| *(anything else)* | `12` | — | Ethereum-tuned fallback; pick a value appropriate for your chain. |
+
+On rollups (Arbitrum/OP/Base), real *finality* is inherited from L1 and takes minutes
+regardless of the depth you choose — the small values above accept sequencer-confirmed ordering
+as "safe", which is the usual trade-off for alerting. For high-value security monitoring,
+consider raising the depth for your chain explicitly.
 
 ---
 

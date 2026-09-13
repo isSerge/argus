@@ -115,7 +115,12 @@ pub struct AppConfig {
     )]
     pub expected_block_time_ms: Option<Duration>,
 
-    /// Number of confirmation blocks to wait for before processing.
+    /// Number of confirmation blocks to wait for before processing a block
+    /// (reorg-safety depth: `safe head = head - confirmation_blocks`).
+    ///
+    /// Chain-specific: the same count means very different wall-clock safety
+    /// and latency on different chains. See the per-chain recommended-values
+    /// table in `docs/src/user_guide/app_yaml.md`.
     pub confirmation_blocks: u64,
 
     /// The maximum time in seconds to wait for graceful shutdown.

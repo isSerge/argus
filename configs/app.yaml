@@ -16,6 +16,10 @@ polling_interval_ms: 10000
 # Expected block time of the target chain in milliseconds.
 # This value is used to estimate the expected time between new blocks on the target chain.
 expected_block_time_ms: 12000
+# Required. Reorg-safety depth: blocks to wait before processing
+# (head - confirmation_blocks). The right value is chain-specific: 12 is
+# ~2.4 min on Ethereum but only ~36s on BSC and ~24s on Polygon. See the
+# per-chain recommended-values table in docs/src/user_guide/app.yaml.md.
 confirmation_blocks: 12
 notification_channel_capacity: 1024
 abi_config_path: abis/

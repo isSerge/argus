@@ -273,9 +273,8 @@ mod tests {
         DataSourceError::Provider(Box::new(io::Error::other("disk error")))
     }
 
-    /// Ranges spanning `fail_width`+ blocks fail with a query rejection;
+    /// Ranges spanning more than `fail_width` blocks fail with a query rejection;
     /// calls are recorded as `(from, to, ok)`.
-    fn mock_source(fail_width: u64, calls: CallLog) -> MockDataSource {
         let mut mock = MockDataSource::new();
         mock.expect_fetch_logs_for_range().times(..).returning({
             let calls = calls.clone();

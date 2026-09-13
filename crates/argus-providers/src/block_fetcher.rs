@@ -82,22 +82,34 @@ fn halve_range((start, end): (u64, u64)) -> [(u64, u64); 2] {
 
 type ChunkOutcome = ((u64, u64), Result<Vec<Log>, DataSourceError>);
 
-/// Whether the provider rejected the query itself (result too large, query
-/// timeout) — errors a smaller block range can plausibly fix. Only JSON-RPC
-/// error responses (`ErrorResp`) qualify: transport failures were already
-/// retried by `RetryBackoffLayer` and cannot improve with a smaller range.
+/// Whether a smaller block range plausibly fixes this provider error — the
+/// query was rejected as too large or too slow. JSON-RPC error responses
+/// (`ErrorResp`) qualify by default: provider size/range rejections use
+/// arbitrary codes and messages, so an unknown variant must still shrink.
+/// Only clearly unrelated classes (auth, rate limits, invalid params) fail
+/// fast, since retrying a smaller range would hit the same wall. Transport
+/// failures never qualify: `RetryBackoffLayer` already retried them and a
+/// smaller range cannot help.
 pub(crate) fn is_query_rejection(err: &DataSourceError) -> bool {
     let DataSourceError::Provider(inner) = err else { return false };
-    let Some(rpc) = inner.downcast_ref::<RpcError<TransportErrorKind>>() else { return false };
+    let Some(rpc) = inner.downcast_ref::<RpcError<TransportErrorKind>>() else {
+        return false;
+    };
+    let RpcError::ErrorResp(payload) = rpc else { return false };
 
-    match rpc {
-        // Match common "query too large" / "timeout" style provider rejections.
-        RpcError::ErrorResp(payload) => {
-            let msg = payload.message.as_ref();
-            msg.contains("more than") && msg.contains("results") || msg.contains("timeout")
-        }
-        _ => false,
+    // Malformed request or params: a smaller range cannot fix these.
+    if matches!(payload.code, -32700 | -32600 | -32601 | -32602) {
+        return false;
     }
+    // Auth and rate-limit rejections: fail fast, the ingestor retries the
+    // whole batch on its own cadence.
+    if matches!(payload.code, 401 | 403 | 429) {
+        return false;
+    }
+    let msg = payload.message.to_lowercase();
+    !["unauthorized", "forbidden", "api key", "rate limit", "request limit", "too many requests"]
+        .iter()
+        .any(|pat| msg.contains(pat))
 }
 
 /// Fetches a batch of sub-ranges concurrently, tagging each result with its
@@ -263,13 +275,17 @@ mod tests {
 
     type CallLog = Arc<Mutex<Vec<(u64, u64, bool)>>>;
 
-    fn query_rejection() -> DataSourceError {
+    fn error_resp(code: i64, message: &str) -> DataSourceError {
         let payload = ErrorPayload::<Box<serde_json::value::RawValue>> {
-            code: -32005,
-            message: Cow::Borrowed("query returned more than 10000 results"),
+            code,
+            message: Cow::Owned(message.to_string()),
             data: None,
         };
         DataSourceError::Provider(Box::new(RpcError::<TransportErrorKind>::ErrorResp(payload)))
+    }
+
+    fn query_rejection() -> DataSourceError {
+        error_resp(-32005, "query returned more than 10000 results")
     }
 
     fn transport_error() -> DataSourceError {
@@ -282,6 +298,7 @@ mod tests {
 
     /// Ranges spanning more than `fail_width` blocks fail with a query rejection;
     /// calls are recorded as `(from, to, ok)`.
+    fn mock_source(fail_width: u64, calls: CallLog) -> MockDataSource {
         let mut mock = MockDataSource::new();
         mock.expect_fetch_logs_for_range().times(..).returning({
             let calls = calls.clone();
@@ -320,6 +337,34 @@ mod tests {
         covered.sort_unstable();
         let expected: Vec<u64> = (from_block..=to_block).collect();
         assert_eq!(covered, expected, "every block fetched exactly once");
+    }
+
+    #[test]
+    fn query_rejection_classification() {
+        // (code, message, shrinkable)
+        for (code, message, shrinkable) in [
+            // Size/range rejections — including undocumented variants — shrink.
+            (-32005, "query returned more than 10000 results", true),
+            (-32603, "Log response size exceeded. Reduce the block range.", true),
+            (-32062, "query timeout exceeded", true),
+            // Auth / rate limits / params fail fast on code...
+            (401, "Unauthorized", false),
+            (403, "Forbidden", false),
+            (429, "Too Many Requests", false),
+            (-32602, "invalid parameters", false),
+            // ...or on message, regardless of provider-specific code.
+            (-32000, "invalid API key provided", false),
+            (-32007, "100/second request limit reached", false),
+            (-32005, "daily rate limit exceeded, try later", false),
+        ] {
+            assert_eq!(
+                is_query_rejection(&error_resp(code, message)),
+                shrinkable,
+                "code {code}, message {message:?}"
+            );
+        }
+        assert!(!is_query_rejection(&transport_error()));
+        assert!(!is_query_rejection(&io_error()));
     }
 
     #[tokio::test]

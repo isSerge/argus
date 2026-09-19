@@ -67,7 +67,7 @@ Hosts the `MonitorManager`, the monitor interest registry (which monitors care a
 Wires the data pipeline:
 
 -   **`BlockIngestor`**: Polls the provider for new blocks and sends raw `BlockData` into the pipeline.
--   **`BlockProcessor`**: Correlates transactions with logs and receipts into `CorrelatedBlockData`.
+-   **`BlockProcessor`**: Correlates transactions with logs and receipts into `CorrelatedBlockData`. Also verifies parent-hash continuity between consecutive blocks to detect reorgs past the confirmation depth (warn log + `reorgs_detected` metric; no behavioral change).
 -   **`FilteringEngine`** (via `argus-rhai`): Runs Rhai scripts against each correlated item; emits `MonitorMatch` objects.
 -   **`AlertManager`**: Applies throttle/aggregation policies and enqueues alerts to the Outbox.
 -   **`OutboxProcessor`**: Drains the persistent Outbox and forwards alerts to `argus-dispatch`.

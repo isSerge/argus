@@ -1,6 +1,6 @@
 //! Integration tests for the persistence layer
 
-use alloy::primitives::TxHash;
+use alloy::primitives::{B256, TxHash};
 use argus_core::{
     action_dispatcher::ActionPayload,
     models::{
@@ -116,14 +116,16 @@ async fn test_processed_block_management() {
     assert!(initial_block.is_none());
 
     // 2. Set and get the last processed block
-    repo.set_last_processed_block(&network_id, 12345).await.unwrap();
+    repo.set_last_processed_block(&network_id, 12345, None).await.unwrap();
     let retrieved_block = repo.get_last_processed_block(&network_id).await.unwrap();
     assert_eq!(retrieved_block, Some(12345));
 
     // 3. Update the last processed block
-    repo.set_last_processed_block(&network_id, 54321).await.unwrap();
+    let hash = B256::from([0xBB; 32]);
+    repo.set_last_processed_block(&network_id, 54321, Some(hash)).await.unwrap();
     let updated_block = repo.get_last_processed_block(&network_id).await.unwrap();
     assert_eq!(updated_block, Some(54321));
+    assert_eq!(repo.get_last_processed_block_tip(&network_id).await.unwrap(), Some((54321, hash)));
 }
 
 #[tokio::test]

@@ -12,6 +12,7 @@ use crate::{
         monitor::{Monitor, MonitorConfig, MonitorStatus},
     },
 };
+use alloy::primitives::B256;
 
 /// Represents the application's persistence layer interface.
 #[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
@@ -22,11 +23,21 @@ pub trait AppRepository: Send + Sync {
         &self,
         network_id: &NetworkId,
     ) -> Result<Option<u64>, PersistenceError>;
-    /// Sets the last processed block number for a given network.
+
+    /// Retrieves the last processed block number and hash for a given network.
+    /// Returns `None` when no block was processed or the persisted state
+    /// predates hash tracking.
+    async fn get_last_processed_block_tip(
+        &self,
+        network_id: &NetworkId,
+    ) -> Result<Option<(u64, B256)>, PersistenceError>;
+
+    /// Sets the last processed block number and hash for a given network.
     async fn set_last_processed_block(
         &self,
         network_id: &NetworkId,
         block_number: u64,
+        block_hash: Option<B256>,
     ) -> Result<(), PersistenceError>;
 
     /// Performs any necessary cleanup operations before shutdown.

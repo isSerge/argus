@@ -92,7 +92,8 @@ This error occurs when:
       "network_id": "ethereum",
       "uptime_secs": 3600,
       "latest_processed_block": 18345678,
-      "latest_processed_block_timestamp_secs": 1698382800
+      "latest_processed_block_timestamp_secs": 1698382800,
+      "reorgs_detected": 0
     }
     ```
 

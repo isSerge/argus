@@ -1,5 +1,6 @@
 //! Implementation of the AppRepository trait for SqliteStateRepository
 
+use alloy::primitives::B256;
 use argus_core::{
     action_dispatcher::ActionPayload,
     models::{
@@ -17,6 +18,12 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use sqlx::{QueryBuilder, Sqlite};
 
 use crate::SqliteStateRepository;
+
+fn parse_block_hash(s: &str) -> Result<B256, PersistenceError> {
+    s.strip_prefix("0x").unwrap_or(s).parse::<B256>().map_err(|error| {
+        PersistenceError::OperationFailed(format!("invalid persisted block hash: {error}"))
+    })
+}
 
 // Helper struct for mapping from the database row
 #[derive(sqlx::FromRow)]
@@ -127,24 +134,59 @@ impl AppRepository for SqliteStateRepository {
         }
     }
 
-    /// Sets the last processed block number for a given network.
+    /// Retrieves the last processed block number and hash for a given network.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_last_processed_block_tip(
+        &self,
+        network_id: &NetworkId,
+    ) -> Result<Option<(u64, B256)>, PersistenceError> {
+        let result = self
+            .execute_query_with_error_handling(
+                "query last processed block tip",
+                sqlx::query!(
+                    "SELECT block_number, block_hash FROM processed_blocks WHERE network_id = ?",
+                    network_id
+                )
+                .fetch_optional(&self.pool),
+            )
+            .await?;
+
+        match result {
+            Some(record) => match record.block_hash {
+                Some(hash_str) => {
+                    let block_number = u64::try_from(record.block_number)
+                        .map_err(|error| PersistenceError::OperationFailed(error.to_string()))?;
+                    let block_hash = parse_block_hash(&hash_str)?;
+                    Ok(Some((block_number, block_hash)))
+                }
+                None => Ok(None),
+            },
+            None => Ok(None),
+        }
+    }
+
+    /// Sets the last processed block number and hash for a given network.
     #[tracing::instrument(skip(self), level = "debug")]
     async fn set_last_processed_block(
         &self,
         network_id: &NetworkId,
         block_number: u64,
+        block_hash: Option<B256>,
     ) -> Result<(), PersistenceError> {
         let block_number_i64 = i64::try_from(block_number).map_err(|error| {
             tracing::error!(error = %error, block_number = %block_number, "Failed to convert block_number to i64 for database insertion.");
             PersistenceError::InvalidInput(error.to_string())
         })?;
 
+        let block_hash_str = block_hash.map(|hash| format!("{hash:#x}"));
+
         self.execute_query_with_error_handling(
             "set last processed block",
             sqlx::query!(
-                "INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)",
+                "INSERT OR REPLACE INTO processed_blocks (network_id, block_number, block_hash) VALUES (?, ?, ?)",
                 network_id,
-                block_number_i64
+                block_number_i64,
+                block_hash_str
             )
             .execute(&self.pool),
         )
@@ -198,7 +240,7 @@ impl AppRepository for SqliteStateRepository {
         );
 
         // Save the current state and flush to ensure it's persisted
-        self.set_last_processed_block(network_id, block_number).await?;
+        self.set_last_processed_block(network_id, block_number, None).await?;
         self.flush().await?;
 
         tracing::info!(

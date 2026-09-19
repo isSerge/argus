@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR REPLACE INTO processed_blocks (network_id, block_number, block_hash) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "57993f1a96c8fb70a3a8350b33d3e2ec7d77cd76806e4199e1bf20d43a92279c"
+}

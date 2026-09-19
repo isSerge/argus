@@ -11,6 +11,8 @@ pub struct Metrics {
     pub latest_processed_block: u64,
     /// The timestamp of the latest processed block in seconds.
     pub latest_processed_block_timestamp_secs: u64,
+    /// Number of chain reorgs detected since startup.
+    pub reorgs_detected: u64,
 }
 
 impl Default for Metrics {
@@ -19,6 +21,7 @@ impl Default for Metrics {
             start_time: tokio::time::Instant::now(),
             latest_processed_block: 0,
             latest_processed_block_timestamp_secs: 0,
+            reorgs_detected: 0,
         }
     }
 }

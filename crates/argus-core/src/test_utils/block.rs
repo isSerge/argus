@@ -27,6 +27,11 @@ impl BlockBuilder {
         self
     }
 
+    pub fn parent_hash(mut self, parent_hash: B256) -> Self {
+        self.header.parent_hash = parent_hash;
+        self
+    }
+
     pub fn transaction(mut self, tx: Transaction) -> Self {
         self.transactions.push(tx);
         self

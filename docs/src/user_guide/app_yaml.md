@@ -91,6 +91,14 @@ regardless of the depth you choose — the small values above accept sequencer-c
 as "safe", which is the usual trade-off for alerting. For high-value security monitoring,
 consider raising the depth for your chain explicitly.
 
+Regardless of the depth you choose, Argus detects reorgs that go *deeper* than it: every
+block's `parent_hash` is checked against the previously processed block (a tip that is
+persisted, so restarts and downtime are covered too). A mismatch is logged as a `WARN`
+with the divergence details and counted in the `reorgs_detected` field of
+[`GET /status`](../operations/rest_api.md#application-status). Detection is purely observational —
+Argus does not rewind or suppress alerts for reorged blocks — but it tells you exactly
+which block range may contain missed or orphaned alerts so you can re-check it.
+
 ---
 
 ### Nested Configuration Sections

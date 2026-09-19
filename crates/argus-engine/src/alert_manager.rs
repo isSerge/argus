@@ -398,7 +398,7 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::{Address, TxHash};
+    use alloy::primitives::{Address, B256, TxHash};
     use argus_core::{
         models::{
             ActionId, NetworkId, NotificationMessage,
@@ -458,12 +458,20 @@ mod tests {
             self.repo_mock.get_last_processed_block(network_id).await
         }
 
+        async fn get_last_processed_block_tip(
+            &self,
+            network_id: &NetworkId,
+        ) -> Result<Option<(u64, B256)>, PersistenceError> {
+            self.repo_mock.get_last_processed_block_tip(network_id).await
+        }
+
         async fn set_last_processed_block(
             &self,
             network_id: &NetworkId,
             block_number: u64,
+            block_hash: Option<B256>,
         ) -> Result<(), PersistenceError> {
-            self.repo_mock.set_last_processed_block(network_id, block_number).await
+            self.repo_mock.set_last_processed_block(network_id, block_number, block_hash).await
         }
 
         async fn cleanup(&self) -> Result<(), PersistenceError> {

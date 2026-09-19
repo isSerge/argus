@@ -24,10 +24,6 @@ impl ReorgDetector {
     pub(crate) fn seeded(tip: Option<(u64, B256)>) -> Self {
         Self { tip }
     }
-
-    pub(crate) fn tip(&self) -> Option<(u64, B256)> {
-        self.tip
-    }
     /// Observes a header, returning the discontinuity if the block does not
     /// extend the previously observed one. Advances the tip regardless.
     pub(crate) fn observe(&mut self, header: &Header) -> Option<Reorg> {
@@ -105,11 +101,8 @@ mod tests {
     }
 
     #[test]
-    fn tip_roundtrips_through_seeded() {
-        let mut original = ReorgDetector::default();
-        original.observe(&header(100, hash(1), hash(0)));
-
-        let mut resumed = ReorgDetector::seeded(original.tip());
+    fn seeded_tip_checks_the_first_observed_block() {
+        let mut resumed = ReorgDetector::seeded(Some((100, hash(1))));
         assert!(resumed.observe(&header(101, hash(2), hash(1))).is_none());
         assert!(resumed.observe(&header(102, hash(4), hash(3))).is_some());
     }

@@ -117,6 +117,9 @@ impl<S: AppRepository + ?Sized + Send + Sync> BlockProcessor<S> {
     async fn process_and_dispatch(&mut self, blocks: Vec<BlockData>) {
         self.detect_reorgs(&blocks).await;
 
+        // Captured before `blocks` is consumed
+        let batch_tip = blocks.last().map(|b| (b.block.header.number, b.block.header.hash));
+
         match process_blocks_batch(blocks, self.monitor_manager.clone()).await {
             Ok(correlated_blocks) => {
                 for correlated_block in correlated_blocks {
@@ -128,7 +131,7 @@ impl<S: AppRepository + ?Sized + Send + Sync> BlockProcessor<S> {
                     }
                 }
 
-                if let Some((block_number, block_hash)) = self.reorg_detector.tip() {
+                if let Some((block_number, block_hash)) = batch_tip {
                     if let Err(e) = self
                         .state
                         .set_last_processed_block(
@@ -347,11 +350,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_reorg_detected_on_parent_hash_mismatch() {
+        let hash_a = B256::from([0xAA; 32]);
+        let hash_b = B256::from([0xBB; 32]);
+        let hash_c = B256::from([0xCC; 32]);
+
         let mut harness = TestHarness::new();
+        // The persisted tip is the last dispatched block of each batch.
         harness
             .mock_state_repo
             .expect_set_last_processed_block()
-            .times(2)
+            .with(always(), eq(100), eq(Some(hash_a)))
+            .returning(|_, _, _| Ok(()));
+        harness
+            .mock_state_repo
+            .expect_set_last_processed_block()
+            .with(always(), eq(101), eq(Some(hash_c)))
             .returning(|_, _, _| Ok(()));
 
         let (_, raw_rx) = mpsc::channel(10);
@@ -359,9 +372,6 @@ mod tests {
         let (mut processor, app_metrics) =
             harness.build(raw_rx, correlated_tx, CancellationToken::new());
 
-        let hash_a = B256::from([0xAA; 32]);
-        let hash_b = B256::from([0xBB; 32]);
-        let hash_c = B256::from([0xCC; 32]);
         let block_100 = BlockBuilder::new().number(100).hash(hash_a).build();
         // Reorged successor: its parent is not the block we processed.
         let block_101 = BlockBuilder::new().number(101).hash(hash_c).parent_hash(hash_b).build();
@@ -409,6 +419,25 @@ mod tests {
         assert_eq!(app_metrics.metrics.read().await.reorgs_detected, 0);
         assert_eq!(correlated_rx.recv().await.unwrap().block_number, 100);
         assert_eq!(correlated_rx.recv().await.unwrap().block_number, 101);
+    }
+
+    #[tokio::test]
+    async fn test_no_persist_when_correlated_channel_closed() {
+        let mut harness = TestHarness::new();
+        // Dispatch fails: nothing may be persisted, even though the batch was
+        // observed and correlated.
+        harness.mock_state_repo.expect_set_last_processed_block().times(0);
+
+        let (_, raw_rx) = mpsc::channel(10);
+        let (correlated_tx, correlated_rx) = mpsc::channel(10);
+        let (mut processor, _app_metrics) =
+            harness.build(raw_rx, correlated_tx, CancellationToken::new());
+        drop(correlated_rx);
+
+        let block = BlockBuilder::new().number(100).hash(B256::from([0xAA; 32])).build();
+        processor
+            .process_and_dispatch(vec![BlockData::from_raw_data(block, HashMap::new(), vec![])])
+            .await;
     }
 
     #[tokio::test]

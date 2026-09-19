@@ -24,6 +24,8 @@ pub struct StatusResponse {
     pub latest_processed_block: u64,
     /// The timestamp of the latest processed block in seconds.
     pub latest_processed_block_timestamp_secs: u64,
+    /// Number of chain reorgs detected since startup.
+    pub reorgs_detected: u64,
 }
 
 /// Retrieves application status and metrics.
@@ -35,6 +37,7 @@ pub async fn status(State(state): State<ApiState>) -> Result<impl IntoResponse, 
         uptime_secs: metrics.start_time.elapsed().as_secs(),
         latest_processed_block: metrics.latest_processed_block,
         latest_processed_block_timestamp_secs: metrics.latest_processed_block_timestamp_secs,
+        reorgs_detected: metrics.reorgs_detected,
     };
     Ok((StatusCode::OK, Json(response)))
 }

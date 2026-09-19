@@ -2,11 +2,12 @@
 //! processing raw blockchain data into a correlated format, ready for the
 //! filtering engine.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use alloy::rpc::types::BlockTransactions;
+use alloy::{primitives::B256, rpc::types::BlockTransactions};
 use argus_core::{
     config::AppConfig,
+    metrics::AppMetrics,
     models::{BlockData, CorrelatedBlockData, CorrelatedBlockItem, transaction::Transaction},
     persistence::traits::AppRepository,
 };
@@ -26,6 +27,8 @@ pub struct BlockProcessor<S: AppRepository + ?Sized> {
     config: Arc<AppConfig>,
     /// The persistent state repository for managing application state.
     state: Arc<S>,
+    /// The shared application metrics.
+    app_metrics: AppMetrics,
     /// The monitor manager.
     monitor_manager: Arc<MonitorManager>,
     /// The receiver for the raw block data channel.
@@ -34,13 +37,18 @@ pub struct BlockProcessor<S: AppRepository + ?Sized> {
     correlated_blocks_tx: mpsc::Sender<CorrelatedBlockData>,
     /// A token used to signal a graceful shutdown.
     cancellation_token: CancellationToken,
+    /// The current tip of the blockchain as seen by the processor.
+    /// Contains the block number and block hash.
+    chain_tip: Mutex<Option<(u64, B256)>>,
 }
 
 impl<S: AppRepository + ?Sized + Send + Sync> BlockProcessor<S> {
     /// Creates a new BlockProcessor instance.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: Arc<AppConfig>,
         state: Arc<S>,
+        app_metrics: AppMetrics,
         monitor_manager: Arc<MonitorManager>,
         raw_blocks_rx: mpsc::Receiver<BlockData>,
         correlated_blocks_tx: mpsc::Sender<CorrelatedBlockData>,
@@ -49,10 +57,12 @@ impl<S: AppRepository + ?Sized + Send + Sync> BlockProcessor<S> {
         Self {
             config,
             state,
+            app_metrics,
             monitor_manager,
             raw_blocks_rx,
             correlated_blocks_tx,
             cancellation_token,
+            chain_tip: std::sync::Mutex::new(None),
         }
     }
 
@@ -89,6 +99,13 @@ impl<S: AppRepository + ?Sized + Send + Sync> BlockProcessor<S> {
 
     /// Processes a batch of blocks and dispatches them to the filtering engine.
     async fn process_and_dispatch(&self, blocks: Vec<BlockData>) {
+        // Check for chain reorgs before processing the batch.
+        let reorgs = self.check_chain_continuity(&blocks);
+        if reorgs > 0 {
+            let mut metrics = self.app_metrics.metrics.write().await;
+            metrics.reorgs_detected += reorgs;
+        }
+
         match process_blocks_batch(blocks, self.monitor_manager.clone()).await {
             Ok(correlated_blocks) => {
                 let mut last_processed = None;
@@ -122,6 +139,39 @@ impl<S: AppRepository + ?Sized + Send + Sync> BlockProcessor<S> {
                 tracing::warn!(error = %e, "Error during batch processing, will retry.");
             }
         }
+    }
+
+    /// Verifies parent-hash continuity across consecutive blocks, warning on
+    /// mismatches (reorg or gap deeper than the confirmation depth). Purely
+    /// observational: blocks are dispatched regardless of the outcome.
+    ///
+    /// Returns the number of discontinuities detected.
+    fn check_chain_continuity(&self, blocks: &[BlockData]) -> u64 {
+        let mut detected = 0;
+        let mut chain_tip =
+            self.chain_tip.lock().expect("chain_tip mutex poisoned by a panicked check");
+
+        for block_data in blocks {
+            let header = &block_data.block.header;
+
+            if let Some((prev_number, prev_hash)) = *chain_tip {
+                if header.number == prev_number + 1 && header.parent_hash != prev_hash {
+                    tracing::warn!(
+                        network_id = %self.config.network_id,
+                        block_number = header.number,
+                        previous_block_number = prev_number,
+                        expected_parent = %prev_hash,
+                        actual_parent = %header.parent_hash,
+                        "Reorg or chain discontinuity detected: block does not extend the previously processed block. Alerts in the affected range may be missed or orphaned."
+                    );
+                    detected += 1;
+                }
+            }
+
+            *chain_tip = Some((header.number, header.hash));
+        }
+
+        detected
     }
 }
 
@@ -220,6 +270,7 @@ mod tests {
 
     use alloy::primitives::{B256, address};
     use argus_core::{
+        metrics::AppMetrics,
         models::NetworkId,
         monitor::InterestRegistry,
         persistence::traits::MockAppRepository,
@@ -247,6 +298,16 @@ mod tests {
             tx: mpsc::Sender<CorrelatedBlockData>,
             token: CancellationToken,
         ) -> BlockProcessor<MockAppRepository> {
+            self.build_with_metrics(rx, tx, token, AppMetrics::default())
+        }
+
+        fn build_with_metrics(
+            self,
+            rx: mpsc::Receiver<BlockData>,
+            tx: mpsc::Sender<CorrelatedBlockData>,
+            token: CancellationToken,
+            app_metrics: AppMetrics,
+        ) -> BlockProcessor<MockAppRepository> {
             let monitor =
                 MonitorBuilder::new().network(&NetworkId::default()).filter_script("true").build();
             let monitors = vec![monitor];
@@ -254,6 +315,7 @@ mod tests {
             BlockProcessor::new(
                 self.config,
                 Arc::new(self.mock_state_repo),
+                app_metrics,
                 monitor_manager,
                 rx,
                 tx,
@@ -287,6 +349,74 @@ mod tests {
 
         let correlated_block = correlated_rx.recv().await.unwrap();
         assert_eq!(correlated_block.block_number, block_number);
+    }
+
+    #[tokio::test]
+    async fn test_reorg_detected_on_parent_hash_mismatch() {
+        let mut harness = TestHarness::new();
+        harness.mock_state_repo.expect_set_last_processed_block().times(2).returning(|_, _| Ok(()));
+
+        let app_metrics = AppMetrics::default();
+        let (_, raw_rx) = mpsc::channel(10);
+        let (correlated_tx, mut correlated_rx) = mpsc::channel(10);
+        let processor = harness.build_with_metrics(
+            raw_rx,
+            correlated_tx,
+            CancellationToken::new(),
+            app_metrics.clone(),
+        );
+
+        let hash_a = B256::from([0xAA; 32]);
+        let hash_b = B256::from([0xBB; 32]);
+        let hash_c = B256::from([0xCC; 32]);
+        let block_100 = BlockBuilder::new().number(100).hash(hash_a).build();
+        // Reorged successor: its parent is not the block we processed.
+        let block_101 = BlockBuilder::new().number(101).hash(hash_c).parent_hash(hash_b).build();
+
+        processor
+            .process_and_dispatch(vec![BlockData::from_raw_data(block_100, HashMap::new(), vec![])])
+            .await;
+        processor
+            .process_and_dispatch(vec![BlockData::from_raw_data(block_101, HashMap::new(), vec![])])
+            .await;
+
+        assert_eq!(app_metrics.metrics.read().await.reorgs_detected, 1);
+        // No behavioral change: the reorged block is still dispatched.
+        assert_eq!(correlated_rx.recv().await.unwrap().block_number, 100);
+        assert_eq!(correlated_rx.recv().await.unwrap().block_number, 101);
+    }
+
+    #[tokio::test]
+    async fn test_no_reorg_counted_on_continuous_chain() {
+        let mut harness = TestHarness::new();
+        harness.mock_state_repo.expect_set_last_processed_block().times(1).returning(|_, _| Ok(()));
+
+        let app_metrics = AppMetrics::default();
+        let (_, raw_rx) = mpsc::channel(10);
+        let (correlated_tx, mut correlated_rx) = mpsc::channel(10);
+        let processor = harness.build_with_metrics(
+            raw_rx,
+            correlated_tx,
+            CancellationToken::new(),
+            app_metrics.clone(),
+        );
+
+        let hash_a = B256::from([0xAA; 32]);
+        let hash_b = B256::from([0xBB; 32]);
+        let block_100 = BlockBuilder::new().number(100).hash(hash_a).build();
+        let block_101 = BlockBuilder::new().number(101).hash(hash_b).parent_hash(hash_a).build();
+
+        // Both blocks in one batch: continuity is checked within the batch too.
+        processor
+            .process_and_dispatch(vec![
+                BlockData::from_raw_data(block_100, HashMap::new(), vec![]),
+                BlockData::from_raw_data(block_101, HashMap::new(), vec![]),
+            ])
+            .await;
+
+        assert_eq!(app_metrics.metrics.read().await.reorgs_detected, 0);
+        assert_eq!(correlated_rx.recv().await.unwrap().block_number, 100);
+        assert_eq!(correlated_rx.recv().await.unwrap().block_number, 101);
     }
 
     // Tests for the process_block function

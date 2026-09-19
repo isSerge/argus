@@ -288,6 +288,7 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
         let block_processor = BlockProcessor::new(
             Arc::clone(&self.config),
             Arc::clone(&self.state),
+            self.app_metrics.clone(),
             self.monitor_manager.clone(),
             raw_blocks_rx,
             correlated_blocks_tx,

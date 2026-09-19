@@ -113,7 +113,7 @@ impl SqliteStateRepository {
 mod tests {
     use std::time::Duration;
 
-    use alloy::primitives::{Address, TxHash};
+    use alloy::primitives::{Address, B256, TxHash};
     use argus_core::{
         action_dispatcher::ActionPayload,
         models::{
@@ -147,20 +147,24 @@ mod tests {
         // Initially, should be None
         let block = repo.get_last_processed_block(network).await.unwrap();
         assert!(block.is_none());
+        assert!(repo.get_last_processed_block_tip(network).await.unwrap().is_none());
 
-        // Set a block number
-        repo.set_last_processed_block(network, 12345).await.unwrap();
+        // Set a block number without a hash
+        repo.set_last_processed_block(network, 12345, None).await.unwrap();
 
         // Retrieve it again
         let block = repo.get_last_processed_block(network).await.unwrap();
         assert_eq!(block, Some(12345));
+        assert!(repo.get_last_processed_block_tip(network).await.unwrap().is_none());
 
-        // Update it
-        repo.set_last_processed_block(network, 54321).await.unwrap();
+        // Update it with a hash
+        let hash = B256::from([0xAA; 32]);
+        repo.set_last_processed_block(network, 54321, Some(hash)).await.unwrap();
 
         // Retrieve the updated value
         let block = repo.get_last_processed_block(network).await.unwrap();
         assert_eq!(block, Some(54321));
+        assert_eq!(repo.get_last_processed_block_tip(network).await.unwrap(), Some((54321, hash)));
     }
 
     #[tokio::test]
@@ -169,7 +173,7 @@ mod tests {
         let network = &NetworkId::from("testnet");
 
         // Set some data
-        repo.set_last_processed_block(network, 100).await.unwrap();
+        repo.set_last_processed_block(network, 100, None).await.unwrap();
 
         // Test flush operation
         repo.flush().await.unwrap();

@@ -69,6 +69,8 @@ impl<S: AppRepository + ?Sized + Send + Sync> BlockProcessor<S> {
 
     /// Starts the long-running service loop.
     pub async fn run(mut self) {
+        self.seed_reorg_detector().await;
+
         let mut block_buffer = Vec::new();
         let batch_size = self.config.block_chunk_size as usize;
 
@@ -98,34 +100,48 @@ impl<S: AppRepository + ?Sized + Send + Sync> BlockProcessor<S> {
         tracing::info!("BlockProcessor has shut down.");
     }
 
+    /// Seeds reorg detection from the persisted chain tip so continuity is
+    /// verified across restarts. On failure, degrades to in-memory-only
+    /// detection rather than blocking processing.
+    async fn seed_reorg_detector(&mut self) {
+        match self.state.get_last_processed_block_tip(&self.config.network_id).await {
+            Ok(tip) => self.reorg_detector = ReorgDetector::seeded(tip),
+            Err(e) => tracing::warn!(
+                error = %e,
+                "Failed to load persisted chain tip; reorg detection starts unseeded."
+            ),
+        }
+    }
+
     /// Processes a batch of blocks and dispatches them to the filtering engine.
     async fn process_and_dispatch(&mut self, blocks: Vec<BlockData>) {
         self.detect_reorgs(&blocks).await;
 
         match process_blocks_batch(blocks, self.monitor_manager.clone()).await {
             Ok(correlated_blocks) => {
-                let mut last_processed = None;
                 for correlated_block in correlated_blocks {
-                    let block_num = correlated_block.block_number;
                     if self.correlated_blocks_tx.send(correlated_block).await.is_err() {
                         tracing::warn!(
                             "Correlated blocks channel closed, stopping further processing."
                         );
                         return;
                     }
-                    last_processed = Some(block_num);
                 }
 
-                if let Some(valid_last_processed) = last_processed {
+                if let Some((block_number, block_hash)) = self.reorg_detector.tip() {
                     if let Err(e) = self
                         .state
-                        .set_last_processed_block(&self.config.network_id, valid_last_processed)
+                        .set_last_processed_block(
+                            &self.config.network_id,
+                            block_number,
+                            Some(block_hash),
+                        )
                         .await
                     {
                         tracing::error!(error = %e, "Failed to set last processed block.");
                     } else {
                         tracing::info!(
-                            last_processed_block = valid_last_processed,
+                            last_processed_block = block_number,
                             "Last processed block updated successfully."
                         );
                     }
@@ -263,7 +279,7 @@ mod tests {
         test_utils::{BlockBuilder, LogBuilder, MonitorBuilder, TransactionBuilder},
     };
     use argus_monitor::test_utils::create_test_monitor_manager;
-    use mockall::predicate::eq;
+    use mockall::predicate::{always, eq};
 
     use super::*;
 
@@ -308,9 +324,9 @@ mod tests {
         harness
             .mock_state_repo
             .expect_set_last_processed_block()
-            .with(eq(NetworkId::default()), eq(100))
+            .with(eq(NetworkId::default()), eq(100), always())
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _, _| Ok(()));
 
         let (_, raw_rx) = mpsc::channel(10);
         let (correlated_tx, mut correlated_rx) = mpsc::channel(10);
@@ -332,7 +348,7 @@ mod tests {
     #[tokio::test]
     async fn test_reorg_detected_on_parent_hash_mismatch() {
         let mut harness = TestHarness::new();
-        harness.mock_state_repo.expect_set_last_processed_block().times(2).returning(|_, _| Ok(()));
+        harness.mock_state_repo.expect_set_last_processed_block().times(2).returning(|_, _, _| Ok(()));
 
         let (_, raw_rx) = mpsc::channel(10);
         let (correlated_tx, mut correlated_rx) = mpsc::channel(10);
@@ -361,7 +377,7 @@ mod tests {
     #[tokio::test]
     async fn test_no_reorg_counted_on_continuous_chain() {
         let mut harness = TestHarness::new();
-        harness.mock_state_repo.expect_set_last_processed_block().times(1).returning(|_, _| Ok(()));
+        harness.mock_state_repo.expect_set_last_processed_block().times(1).returning(|_, _, _| Ok(()));
 
         let (_, raw_rx) = mpsc::channel(10);
         let (correlated_tx, mut correlated_rx) = mpsc::channel(10);
@@ -382,6 +398,39 @@ mod tests {
 
         assert_eq!(app_metrics.metrics.read().await.reorgs_detected, 0);
         assert_eq!(correlated_rx.recv().await.unwrap().block_number, 100);
+        assert_eq!(correlated_rx.recv().await.unwrap().block_number, 101);
+    }
+
+    #[tokio::test]
+    async fn test_reorg_detected_across_restart_via_persisted_tip() {
+        let mut harness = TestHarness::new();
+        let hash_a = B256::from([0xAA; 32]);
+        let hash_b = B256::from([0xBB; 32]);
+        let hash_c = B256::from([0xCC; 32]);
+
+        // Before "restart", the tip (100, hash_a) was persisted. During
+        // downtime a reorg replaced block 100.
+        harness
+            .mock_state_repo
+            .expect_get_last_processed_block_tip()
+            .times(1)
+            .returning(move |_| Ok(Some((100, hash_a))));
+        harness.mock_state_repo.expect_set_last_processed_block().times(1).returning(|_, _, _| Ok(()));
+
+        let (_, raw_rx) = mpsc::channel(10);
+        let (correlated_tx, mut correlated_rx) = mpsc::channel(10);
+        let (mut processor, app_metrics) = harness.build(raw_rx, correlated_tx, CancellationToken::new());
+
+        processor.seed_reorg_detector().await;
+
+        // The first block after restart extends a different parent than the
+        // one persisted: the junction is checked, not blindly seeded.
+        let block_101 = BlockBuilder::new().number(101).hash(hash_c).parent_hash(hash_b).build();
+        processor
+            .process_and_dispatch(vec![BlockData::from_raw_data(block_101, HashMap::new(), vec![])])
+            .await;
+
+        assert_eq!(app_metrics.metrics.read().await.reorgs_detected, 1);
         assert_eq!(correlated_rx.recv().await.unwrap().block_number, 101);
     }
 

@@ -287,7 +287,7 @@ impl AppContextBuilder {
             "Setting latest processed block in database."
         );
 
-        repo.set_last_processed_block(network_id, final_start_block.saturating_sub(1))
+        repo.set_last_processed_block(network_id, final_start_block.saturating_sub(1), None)
             .await
             .map_err(|e| {
                 InitializationError::BlockStateInitialization(format!(

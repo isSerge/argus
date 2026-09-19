@@ -308,7 +308,8 @@ pub fn create_provider(
         retry_config.max_retry,
         retry_config.backoff_ms,
         retry_config.compute_units_per_second,
-    );
+    )
+    .with_avg_unit_cost(retry_config.avg_compute_unit_cost);
 
     // Apply the layers
     let service =

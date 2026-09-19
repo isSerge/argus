@@ -124,14 +124,33 @@ These settings control the behavior of the client used to communicate with the E
 rpc_retry_config:
   max_retry: 10
   backoff_ms: 1000
-  compute_units_per_second: 100
+  compute_units_per_second: 1000
+  avg_compute_unit_cost: 17
 ```
 
 | Parameter | Description |
 | :--- | :--- |
 | `max_retry` | The maximum number of retries for a failing RPC request. |
 | `backoff_ms` | The initial backoff delay in milliseconds for RPC retries. |
-| `compute_units_per_second` | The number of compute units per second to allow (for rate limiting). |
+| `compute_units_per_second` | Client-side compute-unit (CU) budget per second, shared by all `rpc_urls`. It only affects retry pacing after errors (e.g. 429s), roughly allowing `compute_units_per_second / avg_compute_unit_cost` requests per second. |
+| `avg_compute_unit_cost` | Average CU cost of a single request (default `17` ≈ `eth_getBlockByNumber` on Alchemy). Raise it for heavy methods so the pacing errs on the safe side. |
+
+#### Tuning `compute_units_per_second` per provider tier
+
+The budget is shared across **all** configured `rpc_urls`, so match it to the *slowest* provider in the list. Recommended starting points:
+
+| Provider tier | `compute_units_per_second` |
+| :--- | :--- |
+| Public / community endpoints (1rpc.io, llamarpc, mevblocker, …) | 100–250 |
+| Infura Free (~200 CU/s) | 200 |
+| Alchemy Free (330 CU/s) | 330 |
+| Alchemy Growth (1,320 CU/s) | 1320 |
+| Paid / dedicated nodes | 1000+ (per your contract) |
+
+Notes:
+
+- Costs are method-weighted: `eth_getBlockByNumber` ≈ 16 CU, but wide `eth_getLogs` ranges and receipt fetches can cost 50–75+ CU. For log-heavy monitoring, either raise `avg_compute_unit_cost` or lower the budget accordingly.
+- **Fast chains** (BSC ~3s, Polygon/Base/OP ~2s, Arbitrum ≤1s) issue more `eth_getBlockByNumber`/`eth_getLogs`/`eth_getTransactionReceipt` calls per real-time second than Ethereum. If you see self-throttling in logs (`backing off due to rate limit`) while your provider reports low CU utilization, raise the budget; if you see 429s from the provider, lower it (a client-side budget cannot protect per-host limits when several endpoints share the list).
 
 ### HTTP Client Settings (`http_retry_config`)
 

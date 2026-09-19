@@ -8,3 +8,4 @@ pub mod block_processor;
 pub mod filtering;
 pub mod outbox_processor;
 mod polling;
+mod reorg;

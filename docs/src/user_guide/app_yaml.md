@@ -150,7 +150,7 @@ The budget is shared across **all** configured `rpc_urls`, so match it to the *s
 Notes:
 
 - Costs are method-weighted: `eth_getBlockByNumber` ≈ 16 CU, but wide `eth_getLogs` ranges and receipt fetches can cost 50–75+ CU. For log-heavy monitoring, either raise `avg_compute_unit_cost` or lower the budget accordingly.
-- **Fast chains** (BSC ~3s, Polygon/Base/OP ~2s, Arbitrum ≤1s) issue more `get_block`/`eth_getLogs`/receipt calls per real-time second than Ethereum. If you see self-throttling in logs (`backing off due to rate limit`) while your provider reports low CU utilization, raise the budget; if you see 429s from the provider, lower it (a client-side budget cannot protect per-host limits when several endpoints share the list).
+- **Fast chains** (BSC ~3s, Polygon/Base/OP ~2s, Arbitrum ≤1s) issue more `eth_getBlockByNumber`/`eth_getLogs`/`eth_getTransactionReceipt` calls per real-time second than Ethereum. If you see self-throttling in logs (`backing off due to rate limit`) while your provider reports low CU utilization, raise the budget; if you see 429s from the provider, lower it (a client-side budget cannot protect per-host limits when several endpoints share the list).
 
 ### HTTP Client Settings (`http_retry_config`)
 

@@ -154,9 +154,8 @@ impl AppRepository for SqliteStateRepository {
         match result {
             Some(record) => match record.block_hash {
                 Some(hash_str) => {
-                    let block_number = u64::try_from(record.block_number).map_err(|error| {
-                        PersistenceError::OperationFailed(error.to_string())
-                    })?;
+                    let block_number = u64::try_from(record.block_number)
+                        .map_err(|error| PersistenceError::OperationFailed(error.to_string()))?;
                     let block_hash = parse_block_hash(&hash_str)?;
                     Ok(Some((block_number, block_hash)))
                 }

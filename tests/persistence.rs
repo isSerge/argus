@@ -125,10 +125,7 @@ async fn test_processed_block_management() {
     repo.set_last_processed_block(&network_id, 54321, Some(hash)).await.unwrap();
     let updated_block = repo.get_last_processed_block(&network_id).await.unwrap();
     assert_eq!(updated_block, Some(54321));
-    assert_eq!(
-        repo.get_last_processed_block_tip(&network_id).await.unwrap(),
-        Some((54321, hash))
-    );
+    assert_eq!(repo.get_last_processed_block_tip(&network_id).await.unwrap(), Some((54321, hash)));
 }
 
 #[tokio::test]

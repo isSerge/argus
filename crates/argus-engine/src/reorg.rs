@@ -31,17 +31,16 @@ impl ReorgDetector {
     /// Observes a header, returning the discontinuity if the block does not
     /// extend the previously observed one. Advances the tip regardless.
     pub(crate) fn observe(&mut self, header: &Header) -> Option<Reorg> {
-        let reorg = self
-            .tip
-            .filter(|&(number, _)| header.number == number + 1)
-            .and_then(|(number, hash)| {
+        let reorg = self.tip.filter(|&(number, _)| header.number == number + 1).and_then(
+            |(number, hash)| {
                 (header.parent_hash != hash).then(|| Reorg {
                     block_number: header.number,
                     parent_block_number: number,
                     expected_parent_hash: hash,
                     actual_parent_hash: header.parent_hash,
                 })
-            });
+            },
+        );
         self.tip = Some((header.number, header.hash));
         reorg
     }

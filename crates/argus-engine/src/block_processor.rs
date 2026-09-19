@@ -348,11 +348,16 @@ mod tests {
     #[tokio::test]
     async fn test_reorg_detected_on_parent_hash_mismatch() {
         let mut harness = TestHarness::new();
-        harness.mock_state_repo.expect_set_last_processed_block().times(2).returning(|_, _, _| Ok(()));
+        harness
+            .mock_state_repo
+            .expect_set_last_processed_block()
+            .times(2)
+            .returning(|_, _, _| Ok(()));
 
         let (_, raw_rx) = mpsc::channel(10);
         let (correlated_tx, mut correlated_rx) = mpsc::channel(10);
-        let (mut processor, app_metrics) = harness.build(raw_rx, correlated_tx, CancellationToken::new());
+        let (mut processor, app_metrics) =
+            harness.build(raw_rx, correlated_tx, CancellationToken::new());
 
         let hash_a = B256::from([0xAA; 32]);
         let hash_b = B256::from([0xBB; 32]);
@@ -377,11 +382,16 @@ mod tests {
     #[tokio::test]
     async fn test_no_reorg_counted_on_continuous_chain() {
         let mut harness = TestHarness::new();
-        harness.mock_state_repo.expect_set_last_processed_block().times(1).returning(|_, _, _| Ok(()));
+        harness
+            .mock_state_repo
+            .expect_set_last_processed_block()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
 
         let (_, raw_rx) = mpsc::channel(10);
         let (correlated_tx, mut correlated_rx) = mpsc::channel(10);
-        let (mut processor, app_metrics) = harness.build(raw_rx, correlated_tx, CancellationToken::new());
+        let (mut processor, app_metrics) =
+            harness.build(raw_rx, correlated_tx, CancellationToken::new());
 
         let hash_a = B256::from([0xAA; 32]);
         let hash_b = B256::from([0xBB; 32]);
@@ -415,11 +425,16 @@ mod tests {
             .expect_get_last_processed_block_tip()
             .times(1)
             .returning(move |_| Ok(Some((100, hash_a))));
-        harness.mock_state_repo.expect_set_last_processed_block().times(1).returning(|_, _, _| Ok(()));
+        harness
+            .mock_state_repo
+            .expect_set_last_processed_block()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
 
         let (_, raw_rx) = mpsc::channel(10);
         let (correlated_tx, mut correlated_rx) = mpsc::channel(10);
-        let (mut processor, app_metrics) = harness.build(raw_rx, correlated_tx, CancellationToken::new());
+        let (mut processor, app_metrics) =
+            harness.build(raw_rx, correlated_tx, CancellationToken::new());
 
         processor.seed_reorg_detector().await;
 

@@ -58,7 +58,7 @@ server:
 | `block_chunk_size` | The number of blocks to fetch and process in a single batch. **This field is required.** | (none) |
 | `log_chunk_size` | Maximum number of blocks covered by a single `eth_getLogs` RPC call. When `block_chunk_size` exceeds this, the log fetch is split into parallel sub-range requests. Set to `0` to disable chunking. | `2000` |
 | `polling_interval_ms` | The interval in milliseconds to poll for new blocks. Also used as the backoff after ingestion errors. **This field is required.** | (none) |
-| `expected_block_time_ms` | Optional expected block time of the target chain in milliseconds (e.g. Ethereum `12000`, BSC `3000`, Polygon/Base `2000`, Arbitrum `1000`). When set, live polling tracks the chain: once caught up, Argus polls at ~this interval (clamped to [250ms, `polling_interval_ms`]) so alert latency stays ~one block on fast chains. | unset |
+| `expected_block_time_ms` | Optional expected block time of the target chain in milliseconds (e.g. Ethereum `12000`, BSC `450`, Polygon/Base `2000`, Arbitrum `1000`). When set, live polling tracks the chain: once caught up, Argus polls at ~this interval (clamped to [250ms, `polling_interval_ms`]) so alert latency stays ~one block on fast chains. | unset |
 | `confirmation_blocks` | Number of blocks to wait before processing a block, to protect against reorgs. Higher is safer but adds latency. **This field is required** — pick a value appropriate for your chain (see [table below](#confirmation-depth-per-chain)). | (none) |
 | `notification_channel_capacity` | The capacity of the internal channel for sending notifications. | `1024` |
 | `shutdown_timeout` | The maximum time in seconds to wait for a graceful shutdown. | `30` |
@@ -69,7 +69,7 @@ server:
 `confirmation_blocks` is a **reorg-safety** knob, not a finality guarantee: Argus only processes
 blocks at or below `head - confirmation_blocks`. Because block times and finality rules differ
 per chain, the same number means very different things in practice — 12 blocks is ~2.4 min on
-Ethereum, ~36 s on BSC, ~24 s on Polygon (where true finality only arrives with the L1
+Ethereum, ~5 s on BSC, ~24 s on Polygon (where true finality only arrives with the L1
 checkpoint, anyway). The single knob deliberately conflates *reorg-safety* with *finality*, so
 Argus requires you to set it explicitly — the table below gives recommended starting points;
 the final depth is yours to choose.
@@ -78,7 +78,7 @@ the final depth is yours to choose.
 | :--- | :--- | :--- | :--- |
 | `ethereum`, `mainnet`, `eth` | `12` | ~2.4 min | Comfortably inside Ethereum's ~12.8 min finality window; covers typical reorgs. |
 | `sepolia`, `holesky`, `hoodi` | `12` | ~2.4 min | Same consensus rules as mainnet. |
-| `bsc`, `bnb`, `bnb-smart-chain` | `15` | ~45 s | Covers the fast-finality window and BSC's historical multi-block reorgs. |
+| `bsc`, `bnb`, `bnb-smart-chain` | `15` | ~7 s | Post-Maxwell sub-second blocks (~0.45 s); covers the fast-finality window and BSC's historical multi-block reorgs. |
 | `polygon`, `matic`, `bor` | `128` | ~4.3 min | Deep reorgs (~100 blocks) have occurred on Bor; true finality is only the L1 checkpoint. If you need checkpoint-grade safety, wait for checkpoints instead of a bigger number. |
 | `arbitrum`, `arbitrum-one` | `20` | ~5 s | Reorgs essentially don't happen; this only pads against sequencer-feed quirks. |
 | `base`, `optimism`, `op-mainnet` | `15` | ~30 s | OP-stack soft confirmations are sequencer-ordered and effectively stable. |
@@ -98,6 +98,23 @@ with the divergence details and counted in the `reorgs_detected` field of
 [`GET /status`](../operations/rest_api.md#application-status). Detection is purely observational —
 Argus does not rewind or suppress alerts for reorged blocks — but it tells you exactly
 which block range may contain missed or orphaned alerts so you can re-check it.
+
+### Chain Compatibility
+
+Argus fetches blocks through a permissive network type, so any EVM chain's standard
+blocks and transactions parse, including chains that embed non-standard transaction types
+in every block:
+
+- **OP-stack rollups** (Base, OP Mainnet, …): deposit transactions (`type 0x7e`) are parsed
+  and monitored like ordinary transactions.
+- **Arbitrum / Orbit chains** (Arbitrum One, Robinhood Chain, …): the per-block L1-posting
+  system transaction (`type 0x6a` — zero value, system addresses) parses cleanly and is
+  evaluated like any other transaction; it will not match typical value-transfer monitors.
+
+One caveat for scripts and templates: chain-specific transaction types carry no fee fields,
+so `tx.gas_price`, `tx.max_fee_per_gas` and `tx.max_priority_fee_per_gas` are absent for
+them (see the [`tx` object reference](rhai_context.md)). Receipts (including deposit
+receipts) expose the usual fields.
 
 ---
 
@@ -158,7 +175,7 @@ The budget is shared across **all** configured `rpc_urls`, so match it to the *s
 Notes:
 
 - Costs are method-weighted: `eth_getBlockByNumber` ≈ 16 CU, but wide `eth_getLogs` ranges and receipt fetches can cost 50–75+ CU. For log-heavy monitoring, either raise `avg_compute_unit_cost` or lower the budget accordingly.
-- **Fast chains** (BSC ~3s, Polygon/Base/OP ~2s, Arbitrum ≤1s) issue more `eth_getBlockByNumber`/`eth_getLogs`/`eth_getTransactionReceipt` calls per real-time second than Ethereum. If you see self-throttling in logs (`backing off due to rate limit`) while your provider reports low CU utilization, raise the budget; if you see 429s from the provider, lower it (a client-side budget cannot protect per-host limits when several endpoints share the list).
+- **Fast chains** (BSC ~0.5 s, Polygon/Base/OP ~2 s, Arbitrum ≤1 s) issue more `eth_getBlockByNumber`/`eth_getLogs`/`eth_getTransactionReceipt` calls per real-time second than Ethereum. If you see self-throttling in logs (`backing off due to rate limit`) while your provider reports low CU utilization, raise the budget; if you see 429s from the provider, lower it (a client-side budget cannot protect per-host limits when several endpoints share the list).
 
 ### HTTP Client Settings (`http_retry_config`)
 

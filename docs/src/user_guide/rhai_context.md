@@ -24,6 +24,11 @@ The `tx` object is available in **all** monitor scripts. It contains detailed in
 | `status` | Integer | (From Receipt) The transaction status (1 for success, 0 for failure). |
 | `effective_gas_price` | BigInt | (From Receipt) The effective gas price paid, in wei. |
 
+> **Note on chain-specific transaction types:** OP-stack deposit transactions (`0x7e`) and
+> Arbitrum/Orbit system transactions (`0x6a`) carry no fee fields — `gas_price`,
+> `max_fee_per_gas` and `max_priority_fee_per_gas` are absent (`()`) for them. Scripts
+> comparing fee fields should handle their absence.
+
 ### Example Usage
 
 ```rhai

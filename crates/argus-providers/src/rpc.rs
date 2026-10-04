@@ -8,11 +8,12 @@ use std::{
 };
 
 use alloy::{
+    network::{AnyNetwork, AnyRpcBlock},
     primitives::{B256, BloomInput, TxHash},
     providers::{Provider, ProviderBuilder, layers::CallBatchLayer},
     rpc::{
         client::RpcClient,
-        types::{Block, Filter, Log, TransactionReceipt},
+        types::{Filter, Log},
     },
     transports::{
         http::{Http, reqwest::Url},
@@ -21,7 +22,7 @@ use alloy::{
 };
 use argus_core::{
     config::RpcRetryConfig,
-    models::Log as ArgusLog,
+    models::{Log as ArgusLog, TransactionReceipt},
     monitor::RegistryProvider,
     providers::traits::{DataSource, DataSourceError},
 };
@@ -30,9 +31,13 @@ use futures::stream::{self, StreamExt, TryStreamExt};
 use tower::ServiceBuilder;
 
 /// A `DataSource` implementation that fetches data from an EVM RPC endpoint.
+///
+/// Uses the permissive `AnyNetwork` so that chain-specific transaction types
+/// (OP-stack deposits `0x7e`, Orbit system transactions `0x6a`, ...) parse
+/// instead of failing the whole block.
 pub struct EvmRpcSource {
     /// The RPC provider used to fetch block data.
-    provider: Arc<dyn Provider + Send + Sync>,
+    provider: Arc<dyn Provider<AnyNetwork> + Send + Sync>,
 
     /// Shared interest registry for bloom-filter pre-screening.
     registry: Arc<dyn RegistryProvider>,
@@ -42,7 +47,7 @@ impl EvmRpcSource {
     /// Creates a new `EvmRpcSource`.
     #[tracing::instrument(skip(provider, registry), level = "debug")]
     pub fn new(
-        provider: Arc<dyn Provider + Send + Sync>,
+        provider: Arc<dyn Provider<AnyNetwork> + Send + Sync>,
         registry: Arc<dyn RegistryProvider>,
     ) -> Self {
         Self { provider, registry }
@@ -55,7 +60,7 @@ impl DataSource for EvmRpcSource {
     async fn fetch_block_core_data(
         &self,
         block_number: u64,
-    ) -> Result<(Block, Vec<ArgusLog>), DataSourceError> {
+    ) -> Result<(AnyRpcBlock, Vec<ArgusLog>), DataSourceError> {
         match self.fetch_block_and_logs(block_number).await {
             Ok((block, logs)) => {
                 tracing::debug!(block_number, "Successfully fetched core block data.");
@@ -117,7 +122,7 @@ impl DataSource for EvmRpcSource {
     }
 
     #[tracing::instrument(skip(self), level = "debug")]
-    async fn fetch_block_only(&self, block_number: u64) -> Result<Block, DataSourceError> {
+    async fn fetch_block_only(&self, block_number: u64) -> Result<AnyRpcBlock, DataSourceError> {
         self.provider
             .get_block_by_number(block_number.into())
             .full()
@@ -207,7 +212,7 @@ impl EvmRpcSource {
     pub async fn fetch_block_and_logs(
         &self,
         number: u64,
-    ) -> Result<(Block, Vec<Log>), DataSourceError> {
+    ) -> Result<(AnyRpcBlock, Vec<Log>), DataSourceError> {
         // Fetch block first
         let block = self
             .provider
@@ -291,7 +296,7 @@ pub enum ProviderError {
 pub fn create_provider(
     urls: Vec<Url>,
     retry_config: RpcRetryConfig,
-) -> Result<impl Provider, ProviderError> {
+) -> Result<impl Provider<AnyNetwork>, ProviderError> {
     if urls.is_empty() {
         return Err(ProviderError::CreationError("RPC URL list cannot be empty".into()));
     }
@@ -316,7 +321,10 @@ pub fn create_provider(
         ServiceBuilder::new().layer(retry_layer).layer(fallback_layer).service(transports);
 
     let client = RpcClient::builder().transport(service, false);
-    let provider = ProviderBuilder::new().layer(CallBatchLayer::new()).connect_client(client);
+    let provider = ProviderBuilder::new()
+        .network::<AnyNetwork>()
+        .layer(CallBatchLayer::new())
+        .connect_client(client);
     Ok(provider)
 }
 
@@ -329,25 +337,32 @@ mod tests {
     };
 
     use alloy::{
+        network::AnyNetwork,
         primitives::{Address, B256, Bloom, BloomInput, U256, address, b256},
         providers::{Provider, ProviderBuilder},
-        rpc::types::{Block, TransactionReceipt},
+        rpc::types::TransactionReceipt,
         transports::{http::reqwest::Url, mock::Asserter},
     };
     use arc_swap::ArcSwap;
     use argus_core::{
         config::RpcRetryConfig,
+        models::Transaction,
         monitor::{InterestRegistry, RegistryProvider},
-        test_utils::{BlockBuilder, LogBuilder, ReceiptBuilder},
+        test_utils::{
+            BlockBuilder, LogBuilder, ReceiptBuilder,
+            fixtures::{OP_DEPOSIT_RECEIPT_JSON, OP_DEPOSIT_TX_JSON, ORBIT_SYSTEM_TX_JSON},
+        },
     };
 
     use super::*;
 
     // --- Test helpers ---
 
-    fn mock_provider() -> (Arc<dyn Provider + Send + Sync>, Asserter) {
+    fn mock_provider() -> (Arc<dyn Provider<AnyNetwork> + Send + Sync>, Asserter) {
         let asserter = Asserter::new();
-        let provider = Arc::new(ProviderBuilder::new().connect_mocked_client(asserter.clone()));
+        let provider = Arc::new(
+            ProviderBuilder::new().network::<AnyNetwork>().connect_mocked_client(asserter.clone()),
+        );
         (provider, asserter)
     }
 
@@ -402,12 +417,11 @@ mod tests {
     async fn test_fetch_block_core_data_block_not_found() {
         let (provider, asserter) = mock_provider();
 
-        asserter.push_success(&Option::<Block>::None);
+        asserter.push_success(&Option::<AnyRpcBlock>::None);
 
         let source = EvmRpcSource::new(provider, make_empty_registry());
 
         let result = source.fetch_block_core_data(1).await;
-
         assert!(matches!(result, Err(DataSourceError::BlockNotFound(1))));
     }
 
@@ -458,6 +472,96 @@ mod tests {
         let result = source.fetch_receipts(tx_hashes, 4).await;
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_only_parses_chain_specific_tx_types() {
+        // Regression test for the `AnyNetwork` provider swap: a block carrying
+        // an OP-stack deposit (0x7e) and an Orbit system transaction (0x6a)
+        // must parse. With the default Ethereum network this fails with
+        // "data did not match any variant of untagged enum BlockTransactions".
+        let (provider, asserter) = mock_provider();
+
+        let deposit: serde_json::Value = serde_json::from_str(OP_DEPOSIT_TX_JSON).unwrap();
+        let system: serde_json::Value = serde_json::from_str(ORBIT_SYSTEM_TX_JSON).unwrap();
+        let standard = serde_json::json!({
+            "hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+            "nonce": "0x1",
+            "blockHash": "0xd73db86f1603784df5fc164e8fe18756a926ded0922813be2ce269fe5a12c71b",
+            "blockNumber": "0x4c204bb",
+            "transactionIndex": "0x2",
+            "from": "0x1111111111111111111111111111111111111111",
+            "to": "0x2222222222222222222222222222222222222222",
+            "value": "0xde0b6b3a7640000",
+            "gas": "0x5208",
+            "input": "0x",
+            "chainId": "0x1237",
+            "type": "0x2",
+            "maxFeePerGas": "0x77359400",
+            "maxPriorityFeePerGas": "0x3b9aca00",
+            "accessList": [],
+            "r": "0x1b41f7bcd8c7c8d35d9f4d3a1f9c8e7b6a5d9c8e7f1a2b3c4d5e6f7a8b9c0d1",
+            "s": "0x2c52f8cdd9d8d46e8a0e5d4b2f0d9f8c7b6e0d9f8a2b3d4e5f6a8b9c0d1f2a3",
+            "v": "0x1"
+        });
+
+        let zero_bloom = format!("0x{}", "0".repeat(512));
+        let block_json = serde_json::json!({
+            "hash": "0xd73db86f1603784df5fc164e8fe18756a926ded0922813be2ce269fe5a12c71b",
+            "parentHash": "0x9d79d444bb5f3c5aec94a5c8a1dac76dd1e2c565eeb8b8d63af9b36b6b8feb6f",
+            "number": "0x4c204bb",
+            "timestamp": "0x6ac21a2a",
+            "nonce": "0x000000000005529a",
+            "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+            "logsBloom": zero_bloom,
+            "transactionsRoot": "0xb6f1e874cce45ba5a90a3413962449638b14ffede4891d0894b52f81f866bc3a",
+            "stateRoot": "0xc0a1c3ac388610157af423c3ea3a3f579eb01266d60dd8ab971caf032b87324c",
+            "receiptsRoot": "0xaf4d0f5513682dd89246fe1e7033478813f13de2a590e7237854548e3dbd03ca",
+            "miner": "0xa4b000000000000000000073657175656e636572",
+            "difficulty": "0x1",
+            "gasLimit": "0x4000000000000",
+            "gasUsed": "0xbd7ec",
+            "extraData": "0xe268cc9df2a27ad3e061d659641a90b10ddf435adcbe20f8d19b29bc26d200f8",
+            "mixHash": "0x0000000000000b9000000000018e87a1000000000000003d0000000000000000",
+            "baseFeePerGas": "0x13163b0",
+            // Orbit chain-specific block fields must not break parsing either.
+            "l1BlockNumber": "0x18e87a1",
+            "sendCount": "0xb90",
+            "sendRoot": "0xe268cc9df2a27ad3e061d659641a90b10ddf435adcbe20f8d19b29bc26d200f8",
+            "transactions": [deposit, system, standard],
+            "uncles": []
+        });
+        asserter.push_success(&block_json);
+
+        let source = EvmRpcSource::new(provider, make_empty_registry());
+        let block_number = u64::from_str_radix("4c204bb", 16).unwrap();
+        let block = source.fetch_block_only(block_number).await.expect("block must parse");
+
+        let txs: Vec<_> = block.transactions.txns().cloned().collect();
+        assert_eq!(txs.len(), 3);
+
+        let types: std::collections::BTreeSet<u8> =
+            txs.iter().map(|tx| Transaction(tx.clone()).transaction_type()).collect();
+        assert_eq!(types, [0x02, 0x6a, 0x7e].into());
+
+        let hashes: std::collections::HashSet<_> = block.transactions.hashes().collect();
+        assert!(hashes.contains(&b256!(
+            "0x233ace96f255608781596edfe1520000bd25b69b122cc101be3abb6689a85322"
+        )));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_parses_op_deposit_receipt() {
+        let (provider, asserter) = mock_provider();
+        let receipt: serde_json::Value = serde_json::from_str(OP_DEPOSIT_RECEIPT_JSON).unwrap();
+        asserter.push_success(&receipt);
+
+        let source = EvmRpcSource::new(provider, make_empty_registry());
+        let tx_hash = b256!("0x233ace96f255608781596edfe1520000bd25b69b122cc101be3abb6689a85322");
+        let receipts = source.fetch_receipts(&[tx_hash], 1).await.unwrap();
+
+        assert_eq!(receipts.len(), 1);
+        assert!(receipts[&tx_hash].inner.inner.is_success());
     }
 
     #[tokio::test]
@@ -588,7 +692,7 @@ mod tests {
         let (provider, asserter) = mock_provider();
         let block_number = 404;
 
-        asserter.push_success(&Option::<Block>::None);
+        asserter.push_success(&Option::<AnyRpcBlock>::None);
 
         let data_source = EvmRpcSource::new(provider, make_empty_registry());
         let result = data_source.fetch_block_and_logs(block_number).await;
@@ -606,7 +710,6 @@ mod tests {
 
         asserter.push_success(&receipt1);
         asserter.push_success(&Option::<TransactionReceipt>::None);
-
         let data_source = EvmRpcSource::new(provider, make_empty_registry());
         let receipts = data_source.fetch_receipts(&[tx_hash1, tx_hash2], 4).await.unwrap();
 

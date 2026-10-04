@@ -11,8 +11,9 @@ use alloy::{
     consensus::Transaction as _,
     dyn_abi::{self, DynSolValue, EventExt},
     json_abi::{Event, Function, JsonAbi},
+    network::AnyRpcTransaction,
     primitives::{Address, B256},
-    rpc::types::{Log, Transaction},
+    rpc::types::Log,
 };
 use dashmap::DashMap;
 use thiserror::Error;
@@ -143,13 +144,13 @@ pub enum AbiError {
         item_type: String,
         /// The underlying decoding error
         #[source]
-        source: dyn_abi::Error,
+        source: Box<dyn_abi::Error>,
     },
 }
 
 /// Extracts the target address and function selector from a transaction.
 #[inline]
-fn extract_address_and_selector(tx: &Transaction) -> Result<(Address, [u8; 4]), AbiError> {
+fn extract_address_and_selector(tx: &AnyRpcTransaction) -> Result<(Address, [u8; 4]), AbiError> {
     let to = tx.to().ok_or(AbiError::ContractCreation)?;
     let input = tx.input();
 
@@ -361,7 +362,7 @@ impl AbiService {
             .map_err(|e| AbiError::DecodingError {
                 address: log.address(),
                 item_type: format!("event {}", event.name),
-                source: e,
+                source: Box::new(e),
             })?;
 
         let params: Vec<(String, DynSolValue)> = event
@@ -378,7 +379,7 @@ impl AbiService {
 
     /// Decodes a function call by first trying address-specific ABIs, then
     /// falling back to global ABIs.
-    pub fn decode_function_input(&self, tx: &Transaction) -> Result<DecodedCall, AbiError> {
+    pub fn decode_function_input(&self, tx: &AnyRpcTransaction) -> Result<DecodedCall, AbiError> {
         let (to, selector) = extract_address_and_selector(tx)?;
 
         let result = self
@@ -395,7 +396,7 @@ impl AbiService {
     /// Attempts to decode a function's input using an address-specific ABI.
     fn try_decode_function_from_address(
         &self,
-        tx: &Transaction,
+        tx: &AnyRpcTransaction,
         to: Address,
         selector: &[u8; 4],
     ) -> Option<Result<DecodedCall, AbiError>> {
@@ -411,7 +412,7 @@ impl AbiService {
     /// Attempts to decode a function's input using the global ABI cache.
     fn try_decode_function_from_global(
         &self,
-        tx: &Transaction,
+        tx: &AnyRpcTransaction,
         selector: &[u8; 4],
     ) -> Option<Result<DecodedCall, AbiError>> {
         self.global_function_index.get(selector).and_then(|contracts| {
@@ -429,7 +430,7 @@ impl AbiService {
 
     fn decode_function_direct(
         &self,
-        tx: &Transaction,
+        tx: &AnyRpcTransaction,
         function: &Arc<Function>,
         input_types: Vec<dyn_abi::DynSolType>,
     ) -> Result<DecodedCall, AbiError> {
@@ -438,7 +439,7 @@ impl AbiService {
             tuple_type.abi_decode(&tx.input()[4..]).map_err(|e| AbiError::DecodingError {
                 address: tx.to().unwrap_or_default(),
                 item_type: format!("function {}", function.name),
-                source: e,
+                source: Box::new(e),
             })?;
 
         let decoded_tokens = if let DynSolValue::Tuple(tokens) = decoded_value {
@@ -447,10 +448,10 @@ impl AbiService {
             return Err(AbiError::DecodingError {
                 address: tx.to().unwrap_or_default(),
                 item_type: format!("function {}", function.name),
-                source: dyn_abi::Error::TypeMismatch {
+                source: Box::new(dyn_abi::Error::TypeMismatch {
                     expected: tuple_type.to_string(),
                     actual: format!("{decoded_value:?}"),
-                },
+                }),
             });
         };
 

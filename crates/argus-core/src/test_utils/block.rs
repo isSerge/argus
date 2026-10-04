@@ -1,6 +1,8 @@
 use alloy::{
+    network::{AnyRpcBlock, AnyRpcHeader},
     primitives::{B256, Bloom},
     rpc::types::{Block, BlockTransactions, Header},
+    serde::WithOtherFields,
 };
 
 use crate::models::transaction::Transaction;
@@ -42,13 +44,19 @@ impl BlockBuilder {
         self
     }
 
-    pub fn build(self) -> Block {
+    pub fn build(self) -> AnyRpcBlock {
         let txs = self.transactions.into_iter().map(|tx| tx.0).collect();
-        Block {
-            header: self.header,
+        let header = AnyRpcHeader {
+            hash: self.header.hash,
+            inner: self.header.inner.into(),
+            total_difficulty: self.header.total_difficulty,
+            size: self.header.size,
+        };
+        AnyRpcBlock::new(WithOtherFields::new(Block {
+            header,
             transactions: BlockTransactions::Full(txs),
             uncles: Default::default(),
             withdrawals: Default::default(),
-        }
+        }))
     }
 }

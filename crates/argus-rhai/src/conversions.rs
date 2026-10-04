@@ -5,13 +5,9 @@
 
 use std::collections::HashSet;
 
-use alloy::{
-    consensus::{Transaction as _, TxType},
-    dyn_abi::DynSolValue,
-    primitives::U256,
-    rpc::types::{Transaction, TransactionReceipt},
-};
+use alloy::{dyn_abi::DynSolValue, primitives::U256};
 use argus_abi::{DecodedCall, DecodedLog};
+use argus_core::models::{FeeFields, Transaction, TransactionReceipt};
 use rhai::{Dynamic, Map};
 use rhai_evm::{i256_to_bigint_dynamic, u256_to_bigint_dynamic};
 use serde_json::{Value, json};
@@ -157,60 +153,49 @@ pub fn build_transaction_map(
         map.insert(KEY_TX_TO.into(), to.to_checksum(None).into());
     }
 
-    map.insert(KEY_TX_FROM.into(), transaction.inner.signer().to_checksum(None).into());
-    map.insert(KEY_TX_HASH.into(), transaction.inner.hash().to_string().into());
+    map.insert(KEY_TX_FROM.into(), transaction.from().to_checksum(None).into());
+    map.insert(KEY_TX_HASH.into(), transaction.hash().to_string().into());
 
     // --- Selective Conversion ---
     // Values that can exceed i64::MAX are always converted to BigInt.
     map.insert(KEY_TX_VALUE.into(), u256_to_bigint_dynamic(transaction.value()));
 
     // Values that are bounded (typically u64) are converted to i64.
-    map.insert(KEY_TX_GAS_LIMIT.into(), (transaction.gas_limit() as i64).into());
+    map.insert(KEY_TX_GAS_LIMIT.into(), (transaction.gas() as i64).into());
     map.insert(KEY_TX_NONCE.into(), (transaction.nonce() as i64).into());
     map.insert(KEY_TX_INPUT.into(), format!("0x{}", hex::encode(transaction.input())).into());
 
-    if let Some(block_number) = transaction.block_number {
+    if let Some(block_number) = transaction.block_number() {
         map.insert(KEY_TX_BLOCK_NUMBER.into(), (block_number as i64).into());
     } else {
         map.insert(KEY_TX_BLOCK_NUMBER.into(), Dynamic::UNIT);
     }
 
-    if let Some(transaction_index) = transaction.transaction_index {
+    if let Some(transaction_index) = transaction.transaction_index() {
         map.insert(KEY_TX_TRANSACTION_INDEX.into(), (transaction_index as i64).into());
     } else {
         map.insert(KEY_TX_TRANSACTION_INDEX.into(), Dynamic::UNIT);
     }
 
-    match transaction.inner.tx_type() {
-        TxType::Legacy => {
-            if let Some(gas_price) = transaction.gas_price() {
-                map.insert(KEY_TX_GAS_PRICE.into(), u256_to_bigint_dynamic(U256::from(gas_price)));
-            } else {
-                map.insert(KEY_TX_GAS_PRICE.into(), Dynamic::UNIT);
-            }
+    match transaction.fee_fields() {
+        FeeFields::Legacy { gas_price } => {
+            let value = gas_price.map(u256_to_bigint_dynamic).unwrap_or(Dynamic::UNIT);
+            map.insert(KEY_TX_GAS_PRICE.into(), value);
         }
-        TxType::Eip1559 => {
-            map.insert(
-                KEY_TX_MAX_FEE_PER_GAS.into(),
-                u256_to_bigint_dynamic(U256::from(transaction.max_fee_per_gas())),
-            );
-            if let Some(max_priority_fee_per_gas) = transaction.max_priority_fee_per_gas() {
-                map.insert(
-                    KEY_TX_MAX_PRIORITY_FEE_PER_GAS.into(),
-                    u256_to_bigint_dynamic(U256::from(max_priority_fee_per_gas)),
-                );
-            } else {
-                map.insert(KEY_TX_MAX_PRIORITY_FEE_PER_GAS.into(), Dynamic::UNIT);
-            }
+        FeeFields::Eip1559 { max_fee_per_gas, max_priority_fee_per_gas } => {
+            map.insert(KEY_TX_MAX_FEE_PER_GAS.into(), u256_to_bigint_dynamic(max_fee_per_gas));
+            let value =
+                max_priority_fee_per_gas.map(u256_to_bigint_dynamic).unwrap_or(Dynamic::UNIT);
+            map.insert(KEY_TX_MAX_PRIORITY_FEE_PER_GAS.into(), value);
         }
-        _ => { /* Other transaction types are not explicitly handled for gas fields */ }
+        FeeFields::None => {}
     }
 
     // Add receipt fields if available
     if let Some(receipt) = receipt {
         map.insert(KEY_TX_GAS_USED.into(), (receipt.gas_used as i64).into());
         // status is 0 or 1, fits in i64.
-        map.insert(KEY_TX_STATUS.into(), (receipt.inner.status() as i64).into());
+        map.insert(KEY_TX_STATUS.into(), (receipt.inner.inner.is_success() as i64).into());
         // effective_gas_price can be large.
         map.insert(
             KEY_TX_EFFECTIVE_GAS_PRICE.into(),
@@ -322,46 +307,43 @@ pub fn build_transaction_details_payload(
     if let Some(to) = transaction.to() {
         map.insert(KEY_TX_TO.to_string(), json!(to.to_checksum(None)));
     }
-    map.insert(KEY_TX_FROM.to_string(), json!(transaction.inner.signer().to_checksum(None)));
-    map.insert(KEY_TX_HASH.to_string(), json!(transaction.inner.hash().to_string()));
+    map.insert(KEY_TX_FROM.to_string(), json!(transaction.from().to_checksum(None)));
+    map.insert(KEY_TX_HASH.to_string(), json!(transaction.hash().to_string()));
 
     // Potentially large values are stringified to prevent overflow
     map.insert(KEY_TX_VALUE.to_string(), json!(transaction.value().to_string()));
 
     // Bounded values are kept as JSON numbers
-    map.insert(KEY_TX_GAS_LIMIT.to_string(), json!(transaction.gas_limit()));
+    map.insert(KEY_TX_GAS_LIMIT.to_string(), json!(transaction.gas()));
     map.insert(KEY_TX_NONCE.to_string(), json!(transaction.nonce()));
     map.insert(KEY_TX_INPUT.to_string(), json!(format!("0x{}", hex::encode(transaction.input()))));
 
-    if let Some(transaction_index) = transaction.transaction_index {
+    if let Some(transaction_index) = transaction.transaction_index() {
         map.insert(KEY_TX_TRANSACTION_INDEX.to_string(), json!(transaction_index));
     }
 
-    match transaction.inner.tx_type() {
-        TxType::Legacy => {
-            if let Some(gas_price) = transaction.gas_price() {
+    match transaction.fee_fields() {
+        FeeFields::Legacy { gas_price } => {
+            if let Some(gas_price) = gas_price {
                 map.insert(KEY_TX_GAS_PRICE.to_string(), json!(gas_price.to_string()));
             }
         }
-        TxType::Eip1559 => {
-            map.insert(
-                KEY_TX_MAX_FEE_PER_GAS.to_string(),
-                json!(transaction.max_fee_per_gas().to_string()),
-            );
-            if let Some(max_priority_fee_per_gas) = transaction.max_priority_fee_per_gas() {
+        FeeFields::Eip1559 { max_fee_per_gas, max_priority_fee_per_gas } => {
+            map.insert(KEY_TX_MAX_FEE_PER_GAS.to_string(), json!(max_fee_per_gas.to_string()));
+            if let Some(max_priority_fee_per_gas) = max_priority_fee_per_gas {
                 map.insert(
                     KEY_TX_MAX_PRIORITY_FEE_PER_GAS.to_string(),
                     json!(max_priority_fee_per_gas.to_string()),
                 );
             }
         }
-        _ => {}
+        FeeFields::None => {}
     }
 
     if let Some(receipt) = receipt {
         // gas_used and effective_gas_price are u128 and must be stringified
         map.insert(KEY_TX_GAS_USED.to_string(), json!(receipt.gas_used.to_string()));
-        map.insert(KEY_TX_STATUS.to_string(), json!(receipt.inner.status() as u64));
+        map.insert(KEY_TX_STATUS.to_string(), json!(receipt.inner.inner.is_success() as u64));
         map.insert(
             KEY_TX_EFFECTIVE_GAS_PRICE.to_string(),
             json!(receipt.effective_gas_price.to_string()),
@@ -383,11 +365,12 @@ pub fn build_decoded_call_map(call: &DecodedCall) -> Map {
 #[cfg(test)]
 mod tests {
     use alloy::{
+        consensus::TxType,
         dyn_abi::Word,
         primitives::{Address, Function, I256, U256, address, b256},
     };
-    use argus_abi::test_utils::{LogBuilder, TransactionBuilder};
-    use argus_core::test_utils::ReceiptBuilder;
+    use argus_abi::test_utils::LogBuilder;
+    use argus_core::test_utils::{ReceiptBuilder, TransactionBuilder};
     use num_bigint::BigInt;
     use serde_json::json;
 

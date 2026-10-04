@@ -1,6 +1,6 @@
 //! Parent-hash continuity tracking for reorg observability.
 
-use alloy::{primitives::B256, rpc::types::Header};
+use alloy::{network::AnyRpcHeader, primitives::B256};
 
 /// A detected chain discontinuity: a block that does not extend the previously
 /// observed one, indicating a reorg deeper than the confirmation depth.
@@ -26,7 +26,7 @@ impl ReorgDetector {
     }
     /// Observes a header, returning the discontinuity if the block does not
     /// extend the previously observed one. Advances the tip regardless.
-    pub(crate) fn observe(&mut self, header: &Header) -> Option<Reorg> {
+    pub(crate) fn observe(&mut self, header: &AnyRpcHeader) -> Option<Reorg> {
         let reorg = self.tip.filter(|&(number, _)| header.number == number + 1).and_then(
             |(number, hash)| {
                 (header.parent_hash != hash).then(|| Reorg {
@@ -51,10 +51,10 @@ mod tests {
         B256::from([byte; 32])
     }
 
-    fn header(number: u64, hash: B256, parent_hash: B256) -> Header {
-        Header {
+    fn header(number: u64, hash: B256, parent_hash: B256) -> AnyRpcHeader {
+        AnyRpcHeader {
             hash,
-            inner: consensus::Header { number, parent_hash, ..Default::default() },
+            inner: consensus::Header { number, parent_hash, ..Default::default() }.into(),
             ..Default::default()
         }
     }

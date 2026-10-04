@@ -296,7 +296,7 @@ impl<'a> EvaluationContext<'a> {
         if let Some(map) = &self.tx_map_cache {
             return map.clone();
         }
-        let map = build_transaction_map(&self.item.transaction.0, self.item.receipt.as_ref());
+        let map = build_transaction_map(&self.item.transaction, self.item.receipt.as_ref());
         self.tx_map_cache = Some(map.clone());
         map
     }
@@ -307,7 +307,7 @@ impl<'a> EvaluationContext<'a> {
             return details.clone();
         }
         let details =
-            build_transaction_details_payload(&self.item.transaction.0, self.item.receipt.as_ref());
+            build_transaction_details_payload(&self.item.transaction, self.item.receipt.as_ref());
         self.tx_details_cache = Some(details.clone());
         details
     }

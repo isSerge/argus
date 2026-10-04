@@ -5,8 +5,9 @@ use std::sync::Arc;
 use alloy::{
     consensus::TxType,
     json_abi::JsonAbi,
+    network::AnyRpcTransaction as AlloyTransaction,
     primitives::{Address, B256, Bytes, LogData, U256},
-    rpc::types::{Log as AlloyLog, Transaction as AlloyTransaction},
+    rpc::types::Log as AlloyLog,
 };
 
 use crate::AbiService;

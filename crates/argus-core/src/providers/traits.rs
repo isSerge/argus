@@ -3,14 +3,12 @@
 
 use std::collections::HashMap;
 
-use alloy::{
-    primitives::TxHash,
-    rpc::types::{Block, TransactionReceipt},
-};
+use alloy::{network::AnyRpcBlock, primitives::TxHash};
 use async_trait::async_trait;
 use thiserror::Error;
 
-use crate::{models::Log, persistence::error::PersistenceError};
+use crate::models::{Log, TransactionReceipt};
+use crate::persistence::error::PersistenceError;
 
 /// Custom error type for data source operations.
 #[derive(Error, Debug)]
@@ -46,12 +44,12 @@ pub trait DataSource: Send + Sync {
     async fn fetch_block_core_data(
         &self,
         block_number: u64,
-    ) -> Result<(Block, Vec<Log>), DataSourceError>;
+    ) -> Result<(AnyRpcBlock, Vec<Log>), DataSourceError>;
 
     /// Fetches a single block with full transaction data, without fetching
     /// logs. Used by the range-fetch path where logs are retrieved in a
     /// single batch call via `fetch_logs_for_range`.
-    async fn fetch_block_only(&self, block_number: u64) -> Result<Block, DataSourceError>;
+    async fn fetch_block_only(&self, block_number: u64) -> Result<AnyRpcBlock, DataSourceError>;
 
     /// Fetches all logs matching the monitor interest registry for the given
     /// inclusive block range in a single RPC call. This is significantly more

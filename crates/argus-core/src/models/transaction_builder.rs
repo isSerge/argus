@@ -2,8 +2,8 @@
 
 use alloy::{
     consensus::TxType,
+    network::AnyRpcTransaction,
     primitives::{Address, B256, Bytes, U256},
-    rpc::types::Transaction as AlloyTransaction,
 };
 
 use super::transaction::Transaction;
@@ -179,7 +179,7 @@ impl TransactionBuilder {
             tx_json["accessList"] = serde_json::json!([]);
         }
 
-        let alloy_tx: AlloyTransaction =
+        let alloy_tx: AnyRpcTransaction =
             serde_json::from_value(tx_json).expect("Failed to create transaction from JSON");
 
         Transaction(alloy_tx)
@@ -271,7 +271,7 @@ mod tests {
         assert_eq!(tx.max_fee_per_gas(), 2_000_000_000);
         assert_eq!(tx.max_priority_fee_per_gas(), Some(1_500_000_000));
         assert_eq!(tx.chain_id(), Some(137));
-        assert_eq!(tx.transaction_type(), TxType::Eip1559);
+        assert_eq!(tx.transaction_type(), TxType::Eip1559 as u8);
     }
 
     #[test]
@@ -301,7 +301,7 @@ mod tests {
         assert_eq!(tx.gas(), 30000);
         assert_eq!(tx.gas_price(), Some(20_000_000_000));
         assert_eq!(tx.chain_id(), Some(1));
-        assert_eq!(tx.transaction_type(), TxType::Legacy);
+        assert_eq!(tx.transaction_type(), TxType::Legacy as u8);
 
         // Legacy transactions should not have EIP-1559 fields
         // For legacy transactions, max_fee_per_gas returns the gas_price

@@ -220,7 +220,8 @@ fn process_block(
     let mut correlated_items = Vec::new();
     let interest_registry = &monitor_snapshot.interest_registry;
 
-    if let BlockTransactions::Full(transactions) = block_data.block.transactions {
+    let block = block_data.block.into_inner();
+    if let BlockTransactions::Full(transactions) = block.transactions {
         correlated_items.reserve(transactions.len());
 
         // Choose the processing strategy based on whether any transaction-only monitors
@@ -261,12 +262,12 @@ fn process_block(
         }
     } else {
         tracing::warn!(
-            block_number = block_data.block.header.number,
+            block_number = block.header.number,
             "Block contains only transaction hashes, not full transaction data."
         );
     }
 
-    CorrelatedBlockData { block_number: block_data.block.header.number, items: correlated_items }
+    CorrelatedBlockData { block_number: block.header.number, items: correlated_items }
 }
 
 #[cfg(test)]

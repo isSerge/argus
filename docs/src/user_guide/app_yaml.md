@@ -202,4 +202,4 @@ rhai:
 | `max_call_levels` | Maximum function call nesting depth in a script. |
 | `max_string_size` | Maximum size of strings in characters. |
 | `max_array_size` | Maximum number of array elements. |
-| `execution_timeout` | Maximum execution time per script in milliseconds. |
+| `execution_timeout` | Maximum wall-clock execution time per script evaluation in milliseconds; a script exceeding it is aborted with an execution-timeout error. |

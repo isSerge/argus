@@ -102,8 +102,9 @@ use argus_rhai::{
     conversions::{
         build_log_params_payload, build_transaction_details_payload, build_transaction_map,
     },
-    create_engine,
+    create_engine, is_execution_timeout_error,
     proxies::{CallProxy, LogProxy},
+    start_timeout,
 };
 use async_trait::async_trait;
 #[cfg(test)]
@@ -125,11 +126,8 @@ pub enum RhaiError {
     #[error("Script runtime error: {0}")]
     RuntimeError(Box<EvalAltResult>),
 
-    /// Reserved: script execution exceeded the configured time limit.
-    ///
-    /// Not currently triggered by [`RhaiFilteringEngine::eval_ast_bool_secure`]
-    /// (which runs synchronously without a timeout guard) but kept for
-    /// forward-compatibility with future async or sandboxed execution modes.
+    /// Script execution exceeded the configured wall-clock time limit
+    /// (`RhaiConfig::execution_timeout`).
     #[error("Script execution timeout after {timeout:?}")]
     ExecutionTimeout { timeout: Duration },
 }
@@ -180,6 +178,7 @@ pub trait FilteringEngine: Send + Sync {
 pub struct RhaiFilteringEngine {
     abi_service: Arc<AbiService>,
     engine: Arc<Engine>,
+    execution_timeout: Duration,
     monitor_manager: Arc<MonitorManager>,
 }
 
@@ -350,8 +349,9 @@ impl RhaiFilteringEngine {
         config: RhaiConfig,
         monitor_manager: Arc<MonitorManager>,
     ) -> Self {
+        let execution_timeout = config.execution_timeout;
         let engine = Arc::new(create_engine(config));
-        Self { abi_service, engine, monitor_manager }
+        Self { abi_service, engine, execution_timeout, monitor_manager }
     }
 
     /// First evaluation pass: checks log-aware monitors against each log.
@@ -581,12 +581,20 @@ impl RhaiFilteringEngine {
 
     /// Evaluates a pre-compiled [`AST`] and expects a boolean result.
     ///
-    /// Runs synchronously on the calling thread. The Rhai [`Engine`] is
-    /// configured at construction time (via [`create_engine`]) with
-    /// instruction-count and memory limits to bound worst-case execution time
-    /// without requiring an async timeout guard.
+    /// Runs synchronously on the calling thread under the configured
+    /// `execution_timeout` wall-clock deadline; a script that exceeds it is
+    /// aborted with [`RhaiError::ExecutionTimeout`]. Operation-count and
+    /// memory limits set at construction time (via [`create_engine`]) still
+    /// apply.
     fn eval_ast_bool_secure(&self, ast: &AST, scope: &mut Scope<'_>) -> Result<bool, RhaiError> {
-        self.engine.eval_ast_with_scope::<bool>(scope, ast).map_err(RhaiError::RuntimeError)
+        let _guard = start_timeout(self.execution_timeout);
+        self.engine.eval_ast_with_scope::<bool>(scope, ast).map_err(|e| {
+            if is_execution_timeout_error(&e) {
+                RhaiError::ExecutionTimeout { timeout: self.execution_timeout }
+            } else {
+                RhaiError::RuntimeError(e)
+            }
+        })
     }
 }
 
@@ -692,6 +700,8 @@ impl FilteringEngine for RhaiFilteringEngine {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use alloy::{
         primitives::{Address, B256, Bytes, U256, address, b256},
         sol_types::SolValue,
@@ -794,6 +804,40 @@ mod tests {
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].action_name, "action1");
+    }
+
+    #[test]
+    fn test_evaluate_item_script_exceeding_execution_timeout() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
+
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .filter_script("let x = 0; while x >= 0 { x += 1; } x < 0")
+            .actions(vec!["action1".to_string()])
+            .build();
+
+        // Unlimited operations: the wall-clock deadline is the only bound.
+        let config = RhaiConfig {
+            max_operations: 0,
+            execution_timeout: Duration::from_millis(100),
+            ..RhaiConfig::default()
+        };
+        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
+        let monitor_manager =
+            Arc::new(MonitorManager::new(vec![monitor], compiler, abi_service.clone()));
+        let engine = RhaiFilteringEngine::new(abi_service, config, monitor_manager);
+
+        let tx = TransactionBuilder::new().build();
+        let item = CorrelatedBlockItem::new(tx, vec![], None);
+
+        let start = Instant::now();
+        let result = engine.evaluate_item(&item);
+
+        assert!(matches!(
+            result,
+            Err(RhaiError::ExecutionTimeout { timeout }) if timeout == Duration::from_millis(100)
+        ));
+        assert!(start.elapsed() < Duration::from_secs(5));
     }
 
     #[test]

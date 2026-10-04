@@ -1,8 +1,8 @@
 //! This module defines data structures for correlated blockchain data.
 
-use alloy::{primitives::TxHash, rpc::types::TransactionReceipt};
+use alloy::primitives::TxHash;
 
-use crate::models::{log::Log, transaction::Transaction};
+use crate::models::{Log, TransactionReceipt, transaction::Transaction};
 
 /// Represents a correlated set of data for a single transaction within a block.
 /// This is the unit of data that the `FilteringEngine` will evaluate.

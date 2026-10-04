@@ -3,19 +3,16 @@
 
 use std::collections::HashMap;
 
-use alloy::{
-    primitives::TxHash,
-    rpc::types::{Block, TransactionReceipt},
-};
+use alloy::{network::AnyRpcBlock, primitives::TxHash, rpc::types::Block};
 
-use crate::models::Log;
+use crate::models::{Log, TransactionReceipt};
 
 /// A comprehensive data structure holding all relevant information for a single
 /// block.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct BlockData {
     /// The full block object, including headers and transaction details.
-    pub block: Block,
+    pub block: AnyRpcBlock,
     /// A map of transaction hashes to their corresponding receipts.
     /// Each transaction hash is associated with a single receipt.
     pub receipts: HashMap<TxHash, TransactionReceipt>,
@@ -23,10 +20,16 @@ pub struct BlockData {
     pub logs: HashMap<TxHash, Vec<Log>>,
 }
 
+impl Default for BlockData {
+    fn default() -> Self {
+        Self::new(Block::default().into(), HashMap::new(), HashMap::new())
+    }
+}
+
 impl BlockData {
     /// Creates a new `BlockData` instance.
     pub fn new(
-        block: Block,
+        block: AnyRpcBlock,
         receipts: HashMap<TxHash, TransactionReceipt>,
         logs: HashMap<TxHash, Vec<Log>>,
     ) -> Self {
@@ -45,7 +48,7 @@ impl BlockData {
     /// Returns:
     /// - A `BlockData` instance with logs grouped by their transaction hash
     pub fn from_raw_data(
-        block: Block,
+        block: AnyRpcBlock,
         receipts: HashMap<TxHash, TransactionReceipt>,
         raw_logs: Vec<Log>,
     ) -> Self {
@@ -68,7 +71,7 @@ mod tests {
 
     #[test]
     fn test_new_constructor() {
-        let block = Block::default();
+        let block: AnyRpcBlock = Block::default().into();
         let receipts = HashMap::new();
         let mut logs = HashMap::new();
         let tx_hash = B256::from_slice(&[1; 32]);
@@ -85,7 +88,6 @@ mod tests {
     #[test]
     fn test_default_trait() {
         let block_data = BlockData::default();
-        assert_eq!(block_data.block.header.hash, B256::default());
         assert!(block_data.receipts.is_empty());
         assert!(block_data.logs.is_empty());
     }
@@ -97,10 +99,9 @@ mod tests {
         let log_without_hash = Log(AlloyLog { transaction_hash: None, ..Default::default() });
 
         let raw_logs = vec![log_with_hash, log_without_hash];
-        let block = Block::default();
         let receipts = HashMap::new();
 
-        let block_data = BlockData::from_raw_data(block, receipts, raw_logs);
+        let block_data = BlockData::from_raw_data(Block::default().into(), receipts, raw_logs);
 
         assert_eq!(block_data.logs.len(), 1);
         assert!(block_data.logs.contains_key(&tx_hash));
@@ -116,10 +117,9 @@ mod tests {
         let log3 = Log(AlloyLog { transaction_hash: Some(tx_hash1), ..Default::default() });
 
         let raw_logs = vec![log1, log2, log3];
-        let block = Block::default();
         let receipts = HashMap::new();
 
-        let block_data = BlockData::from_raw_data(block, receipts, raw_logs);
+        let block_data = BlockData::from_raw_data(Block::default().into(), receipts, raw_logs);
 
         assert_eq!(block_data.logs.len(), 2);
         assert_eq!(block_data.logs.get(&tx_hash1).unwrap().len(), 2);
@@ -129,10 +129,9 @@ mod tests {
     #[test]
     fn test_block_data_with_no_logs() {
         let raw_logs = vec![];
-        let block = Block::default();
         let receipts = HashMap::new();
 
-        let block_data = BlockData::from_raw_data(block, receipts, raw_logs);
+        let block_data = BlockData::from_raw_data(Block::default().into(), receipts, raw_logs);
 
         assert!(block_data.logs.is_empty());
     }

@@ -1,16 +1,18 @@
 //! EVM transaction data structures.
 
 use alloy::{
-    consensus::{Transaction as ConsensusTransaction, TxType},
+    consensus::Transaction as ConsensusTransaction,
+    network::AnyRpcTransaction,
     primitives::{Address, B256, Bytes, U256},
-    rpc::types::Transaction as AlloyTransaction,
 };
 use serde::{Deserialize, Serialize};
 
-/// A newtype wrapper around `alloy::rpc::types::Transaction` to create a stable
-/// API boundary for the rest of the application.
+/// A newtype wrapper around `alloy::network::AnyRpcTransaction` to create a
+/// stable API boundary for the rest of the application. The `Any` variant
+/// tolerates chain-specific transaction types (e.g. OP-stack deposits,
+/// Orbit system transactions).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Transaction(pub AlloyTransaction);
+pub struct Transaction(pub AnyRpcTransaction);
 
 impl Transaction {
     /// Returns the transaction hash.
@@ -93,15 +95,16 @@ impl Transaction {
         self.0.inner.chain_id()
     }
 
-    /// Returns the transaction type (legacy, EIP-2930, or EIP-1559).
-    pub fn transaction_type(&self) -> TxType {
-        self.0.inner.tx_type()
+    /// Returns the transaction type byte (e.g. 0x00 legacy, 0x02 EIP-1559,
+    /// 0x7e OP-stack deposit, 0x6a Orbit system transaction).
+    pub fn transaction_type(&self) -> u8 {
+        self.0.inner.tx_type().into()
     }
 }
 
 /// The conversion from the alloy type to our custom type is a zero-cost move.
-impl From<AlloyTransaction> for Transaction {
-    fn from(tx: AlloyTransaction) -> Self {
+impl From<AnyRpcTransaction> for Transaction {
+    fn from(tx: AnyRpcTransaction) -> Self {
         Self(tx)
     }
 }

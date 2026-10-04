@@ -15,6 +15,7 @@ pub mod transaction;
 pub mod transaction_builder;
 
 pub use action_id::ActionId;
+pub use alloy::network::AnyTransactionReceipt as TransactionReceipt;
 pub use block_data::BlockData;
 pub use correlated_data::CorrelatedBlockItem;
 pub use decoded_block::CorrelatedBlockData;

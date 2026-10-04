@@ -1,8 +1,11 @@
 use alloy::{
-    consensus::{Eip658Value, Receipt, ReceiptEnvelope, ReceiptWithBloom},
+    consensus::{Eip658Value, Receipt, ReceiptWithBloom},
+    network::{AnyReceiptEnvelope, AnyTransactionReceipt},
     primitives::{Address, B256, Bloom},
-    rpc::types::TransactionReceipt,
+    rpc::types::{TransactionReceipt, WithOtherFields},
 };
+
+use crate::models::TransactionReceipt as ArgusReceipt;
 
 /// A builder for creating `TransactionReceipt` instances for testing.
 #[derive(Debug, Default, Clone)]
@@ -44,7 +47,7 @@ impl ReceiptBuilder {
         self
     }
 
-    pub fn build(self) -> TransactionReceipt {
+    pub fn build(self) -> ArgusReceipt {
         let status = if self.status.unwrap_or(true) {
             Eip658Value::Eip658(true)
         } else {
@@ -57,7 +60,7 @@ impl ReceiptBuilder {
         let receipt_with_bloom =
             ReceiptWithBloom { receipt: inner_receipt, logs_bloom: Bloom::default() };
 
-        TransactionReceipt {
+        let receipt = TransactionReceipt {
             transaction_hash: self.transaction_hash.unwrap_or_default(),
             block_number: self.block_number,
             transaction_index: Some(1),
@@ -69,7 +72,8 @@ impl ReceiptBuilder {
             effective_gas_price: self.effective_gas_price.unwrap_or(1_000_000_000),
             blob_gas_used: None,
             blob_gas_price: None,
-            inner: ReceiptEnvelope::Eip1559(receipt_with_bloom),
-        }
+            inner: AnyReceiptEnvelope { inner: receipt_with_bloom, r#type: 0x02 },
+        };
+        ArgusReceipt(WithOtherFields::new(receipt))
     }
 }

@@ -8,11 +8,12 @@ use std::{
 };
 
 use alloy::{
+    network::{AnyNetwork, AnyRpcBlock},
     primitives::{B256, BloomInput, TxHash},
     providers::{Provider, ProviderBuilder, layers::CallBatchLayer},
     rpc::{
         client::RpcClient,
-        types::{Block, Filter, Log, TransactionReceipt},
+        types::{Filter, Log},
     },
     transports::{
         http::{Http, reqwest::Url},
@@ -21,7 +22,7 @@ use alloy::{
 };
 use argus_core::{
     config::RpcRetryConfig,
-    models::Log as ArgusLog,
+    models::{Log as ArgusLog, TransactionReceipt},
     monitor::RegistryProvider,
     providers::traits::{DataSource, DataSourceError},
 };
@@ -30,9 +31,13 @@ use futures::stream::{self, StreamExt, TryStreamExt};
 use tower::ServiceBuilder;
 
 /// A `DataSource` implementation that fetches data from an EVM RPC endpoint.
+///
+/// Uses the permissive `AnyNetwork` so that chain-specific transaction types
+/// (OP-stack deposits `0x7e`, Orbit system transactions `0x6a`, ...) parse
+/// instead of failing the whole block.
 pub struct EvmRpcSource {
     /// The RPC provider used to fetch block data.
-    provider: Arc<dyn Provider + Send + Sync>,
+    provider: Arc<dyn Provider<AnyNetwork> + Send + Sync>,
 
     /// Shared interest registry for bloom-filter pre-screening.
     registry: Arc<dyn RegistryProvider>,
@@ -42,7 +47,7 @@ impl EvmRpcSource {
     /// Creates a new `EvmRpcSource`.
     #[tracing::instrument(skip(provider, registry), level = "debug")]
     pub fn new(
-        provider: Arc<dyn Provider + Send + Sync>,
+        provider: Arc<dyn Provider<AnyNetwork> + Send + Sync>,
         registry: Arc<dyn RegistryProvider>,
     ) -> Self {
         Self { provider, registry }
@@ -55,7 +60,7 @@ impl DataSource for EvmRpcSource {
     async fn fetch_block_core_data(
         &self,
         block_number: u64,
-    ) -> Result<(Block, Vec<ArgusLog>), DataSourceError> {
+    ) -> Result<(AnyRpcBlock, Vec<ArgusLog>), DataSourceError> {
         match self.fetch_block_and_logs(block_number).await {
             Ok((block, logs)) => {
                 tracing::debug!(block_number, "Successfully fetched core block data.");
@@ -117,7 +122,7 @@ impl DataSource for EvmRpcSource {
     }
 
     #[tracing::instrument(skip(self), level = "debug")]
-    async fn fetch_block_only(&self, block_number: u64) -> Result<Block, DataSourceError> {
+    async fn fetch_block_only(&self, block_number: u64) -> Result<AnyRpcBlock, DataSourceError> {
         self.provider
             .get_block_by_number(block_number.into())
             .full()
@@ -207,7 +212,7 @@ impl EvmRpcSource {
     pub async fn fetch_block_and_logs(
         &self,
         number: u64,
-    ) -> Result<(Block, Vec<Log>), DataSourceError> {
+    ) -> Result<(AnyRpcBlock, Vec<Log>), DataSourceError> {
         // Fetch block first
         let block = self
             .provider
@@ -291,7 +296,7 @@ pub enum ProviderError {
 pub fn create_provider(
     urls: Vec<Url>,
     retry_config: RpcRetryConfig,
-) -> Result<impl Provider, ProviderError> {
+) -> Result<impl Provider<AnyNetwork>, ProviderError> {
     if urls.is_empty() {
         return Err(ProviderError::CreationError("RPC URL list cannot be empty".into()));
     }
@@ -316,7 +321,10 @@ pub fn create_provider(
         ServiceBuilder::new().layer(retry_layer).layer(fallback_layer).service(transports);
 
     let client = RpcClient::builder().transport(service, false);
-    let provider = ProviderBuilder::new().layer(CallBatchLayer::new()).connect_client(client);
+    let provider = ProviderBuilder::new()
+        .network::<AnyNetwork>()
+        .layer(CallBatchLayer::new())
+        .connect_client(client);
     Ok(provider)
 }
 
@@ -329,9 +337,10 @@ mod tests {
     };
 
     use alloy::{
+        network::AnyNetwork,
         primitives::{Address, B256, Bloom, BloomInput, U256, address, b256},
         providers::{Provider, ProviderBuilder},
-        rpc::types::{Block, TransactionReceipt},
+        rpc::types::TransactionReceipt,
         transports::{http::reqwest::Url, mock::Asserter},
     };
     use arc_swap::ArcSwap;
@@ -345,9 +354,11 @@ mod tests {
 
     // --- Test helpers ---
 
-    fn mock_provider() -> (Arc<dyn Provider + Send + Sync>, Asserter) {
+    fn mock_provider() -> (Arc<dyn Provider<AnyNetwork> + Send + Sync>, Asserter) {
         let asserter = Asserter::new();
-        let provider = Arc::new(ProviderBuilder::new().connect_mocked_client(asserter.clone()));
+        let provider = Arc::new(
+            ProviderBuilder::new().network::<AnyNetwork>().connect_mocked_client(asserter.clone()),
+        );
         (provider, asserter)
     }
 
@@ -402,12 +413,11 @@ mod tests {
     async fn test_fetch_block_core_data_block_not_found() {
         let (provider, asserter) = mock_provider();
 
-        asserter.push_success(&Option::<Block>::None);
+        asserter.push_success(&Option::<AnyRpcBlock>::None);
 
         let source = EvmRpcSource::new(provider, make_empty_registry());
 
         let result = source.fetch_block_core_data(1).await;
-
         assert!(matches!(result, Err(DataSourceError::BlockNotFound(1))));
     }
 
@@ -588,7 +598,7 @@ mod tests {
         let (provider, asserter) = mock_provider();
         let block_number = 404;
 
-        asserter.push_success(&Option::<Block>::None);
+        asserter.push_success(&Option::<AnyRpcBlock>::None);
 
         let data_source = EvmRpcSource::new(provider, make_empty_registry());
         let result = data_source.fetch_block_and_logs(block_number).await;
@@ -606,7 +616,6 @@ mod tests {
 
         asserter.push_success(&receipt1);
         asserter.push_success(&Option::<TransactionReceipt>::None);
-
         let data_source = EvmRpcSource::new(provider, make_empty_registry());
         let receipts = data_source.fetch_receipts(&[tx_hash1, tx_hash2], 4).await.unwrap();
 

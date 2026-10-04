@@ -5,7 +5,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use alloy::{
-    rpc::types::Block,
+    network::AnyRpcBlock,
     transports::{RpcError, TransportErrorKind},
 };
 use argus_core::{
@@ -39,7 +39,7 @@ async fn fetch_blocks_only<D: DataSource + ?Sized>(
     from_block: u64,
     to_block: u64,
     concurrency: usize,
-) -> Result<Vec<Block>, DataSourceError> {
+) -> Result<Vec<AnyRpcBlock>, DataSourceError> {
     let block_stream = stream::iter(from_block..=to_block)
         .map(|block_num| data_source.fetch_block_only(block_num));
 
@@ -217,7 +217,7 @@ pub async fn fetch_blocks_concurrent<D: DataSource + ?Sized>(
     );
 
     let range_logs = range_logs_result?;
-    let blocks: Vec<Block> = blocks_result?;
+    let blocks: Vec<AnyRpcBlock> = blocks_result?;
 
     // Group logs by block number for O(1) lookup when building BlockData.
     let mut logs_by_block: HashMap<u64, Vec<_>> = HashMap::new();

@@ -144,7 +144,7 @@ pub enum AbiError {
         item_type: String,
         /// The underlying decoding error
         #[source]
-        source: dyn_abi::Error,
+        source: Box<dyn_abi::Error>,
     },
 }
 
@@ -362,7 +362,7 @@ impl AbiService {
             .map_err(|e| AbiError::DecodingError {
                 address: log.address(),
                 item_type: format!("event {}", event.name),
-                source: e,
+                source: Box::new(e),
             })?;
 
         let params: Vec<(String, DynSolValue)> = event
@@ -439,7 +439,7 @@ impl AbiService {
             tuple_type.abi_decode(&tx.input()[4..]).map_err(|e| AbiError::DecodingError {
                 address: tx.to().unwrap_or_default(),
                 item_type: format!("function {}", function.name),
-                source: e,
+                source: Box::new(e),
             })?;
 
         let decoded_tokens = if let DynSolValue::Tuple(tokens) = decoded_value {
@@ -448,10 +448,10 @@ impl AbiService {
             return Err(AbiError::DecodingError {
                 address: tx.to().unwrap_or_default(),
                 item_type: format!("function {}", function.name),
-                source: dyn_abi::Error::TypeMismatch {
+                source: Box::new(dyn_abi::Error::TypeMismatch {
                     expected: tuple_type.to_string(),
                     actual: format!("{decoded_value:?}"),
-                },
+                }),
             });
         };
 

@@ -1,4 +1,4 @@
-# Argus: monitoring and event-sourcing for EVM
+# Argus: monitoring for EVM
 
 [![📖 Docs](https://img.shields.io/badge/📖_Docs-gray)](https://isserge.github.io/argus-rs/)
 

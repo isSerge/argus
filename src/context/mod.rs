@@ -14,7 +14,7 @@ use std::{
 };
 
 use abi_repository::AbiRepository;
-use alloy::providers::Provider;
+use alloy::{network::AnyNetwork, providers::Provider};
 use argus_abi::AbiService;
 pub use argus_core::metrics::{AppMetrics, Metrics};
 use argus_core::{
@@ -48,7 +48,7 @@ pub struct AppContext<T: AppRepository + KeyValueStore> {
     pub script_compiler: Arc<RhaiCompiler>,
 
     /// The EVM data provider for blockchain interactions.
-    pub provider: Arc<dyn Provider + Send + Sync>,
+    pub provider: Arc<dyn Provider<AnyNetwork> + Send + Sync>,
 
     /// Template service for rendering action templates.
     pub template_service: Arc<TemplateService>,
@@ -245,7 +245,7 @@ impl AppContextBuilder {
     async fn initialize_block_state(
         config: &AppConfig,
         repo: &dyn AppRepository,
-        provider: &dyn Provider,
+        provider: &dyn Provider<AnyNetwork>,
     ) -> Result<(), InitializationError> {
         let network_id = &config.network_id;
 

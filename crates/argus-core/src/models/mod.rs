@@ -22,4 +22,4 @@ pub use decoded_block::CorrelatedBlockData;
 pub use log::Log;
 pub use network_id::NetworkId;
 pub use notification::NotificationMessage;
-pub use transaction::Transaction;
+pub use transaction::{FeeFields, Transaction};

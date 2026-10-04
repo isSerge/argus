@@ -83,3 +83,23 @@ pub fn create_engine(rhai_config: RhaiConfig) -> Engine {
 
     engine
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spinning_script_is_aborted_and_detected_as_timeout() {
+        // Unlimited operations: the wall-clock deadline is the only bound.
+        let engine = create_engine(RhaiConfig { max_operations: 0, ..RhaiConfig::default() });
+
+        let start = Instant::now();
+        let _guard = start_timeout(Duration::from_millis(100));
+        let err = engine
+            .run("let x = 0; while x >= 0 { x += 1; } x < 0")
+            .expect_err("script should be terminated by the timeout guard");
+
+        assert!(is_execution_timeout_error(&err));
+        assert!(start.elapsed() < Duration::from_secs(5));
+    }
+}

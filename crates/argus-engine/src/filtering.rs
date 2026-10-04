@@ -700,6 +700,8 @@ impl FilteringEngine for RhaiFilteringEngine {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use alloy::{
         primitives::{Address, B256, Bytes, U256, address, b256},
         sol_types::SolValue,
@@ -802,6 +804,43 @@ mod tests {
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].action_name, "action1");
+    }
+
+    #[test]
+    fn test_evaluate_item_script_exceeding_execution_timeout() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
+
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .filter_script("let x = 0; while x >= 0 { x += 1; } x < 0")
+            .actions(vec!["action1".to_string()])
+            .build();
+
+        // Unlimited operations: the wall-clock deadline is the only bound.
+        let config = RhaiConfig {
+            max_operations: 0,
+            execution_timeout: Duration::from_millis(100),
+            ..RhaiConfig::default()
+        };
+        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
+        let monitor_manager = Arc::new(MonitorManager::new(
+            vec![monitor],
+            compiler,
+            abi_service.clone(),
+        ));
+        let engine = RhaiFilteringEngine::new(abi_service, config, monitor_manager);
+
+        let tx = TransactionBuilder::new().build();
+        let item = CorrelatedBlockItem::new(tx, vec![], None);
+
+        let start = Instant::now();
+        let result = engine.evaluate_item(&item);
+
+        assert!(matches!(
+            result,
+            Err(RhaiError::ExecutionTimeout { timeout }) if timeout == Duration::from_millis(100)
+        ));
+        assert!(start.elapsed() < Duration::from_secs(5));
     }
 
     #[test]

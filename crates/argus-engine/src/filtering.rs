@@ -823,11 +823,8 @@ mod tests {
             ..RhaiConfig::default()
         };
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
-        let monitor_manager = Arc::new(MonitorManager::new(
-            vec![monitor],
-            compiler,
-            abi_service.clone(),
-        ));
+        let monitor_manager =
+            Arc::new(MonitorManager::new(vec![monitor], compiler, abi_service.clone()));
         let engine = RhaiFilteringEngine::new(abi_service, config, monitor_manager);
 
         let tx = TransactionBuilder::new().build();

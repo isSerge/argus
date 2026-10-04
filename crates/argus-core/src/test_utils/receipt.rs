@@ -1,8 +1,8 @@
 use alloy::{
     consensus::{Eip658Value, Receipt, ReceiptWithBloom},
-    network::{AnyReceiptEnvelope, AnyTransactionReceipt},
+    network::AnyReceiptEnvelope,
     primitives::{Address, B256, Bloom},
-    rpc::types::{TransactionReceipt, WithOtherFields},
+    rpc::types::TransactionReceipt,
 };
 
 use crate::models::TransactionReceipt as ArgusReceipt;
@@ -74,6 +74,6 @@ impl ReceiptBuilder {
             blob_gas_price: None,
             inner: AnyReceiptEnvelope { inner: receipt_with_bloom, r#type: 0x02 },
         };
-        ArgusReceipt(WithOtherFields::new(receipt))
+        receipt.into()
     }
 }

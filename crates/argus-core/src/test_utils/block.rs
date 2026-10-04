@@ -1,7 +1,8 @@
 use alloy::{
-    network::{AnyHeader, AnyRpcBlock, AnyRpcHeader},
+    network::{AnyRpcBlock, AnyRpcHeader},
     primitives::{B256, Bloom},
-    rpc::types::{Block, BlockTransactions, Header, WithOtherFields},
+    rpc::types::{Block, BlockTransactions, Header},
+    serde::WithOtherFields,
 };
 
 use crate::models::transaction::Transaction;

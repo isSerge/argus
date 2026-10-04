@@ -1,7 +1,7 @@
 //! EVM transaction data structures.
 
 use alloy::{
-    consensus::Transaction as ConsensusTransaction,
+    consensus::{Transaction as ConsensusTransaction, Typed2718 as _},
     network::AnyRpcTransaction,
     primitives::{Address, B256, Bytes, U256},
 };
@@ -17,7 +17,7 @@ pub struct Transaction(pub AnyRpcTransaction);
 impl Transaction {
     /// Returns the transaction hash.
     pub fn hash(&self) -> B256 {
-        *self.0.inner.hash()
+        alloy::network::TransactionResponse::tx_hash(&self.0)
     }
 
     /// Returns the recipient address, or `None` if it is a contract creation.
@@ -27,7 +27,7 @@ impl Transaction {
 
     /// Returns the sender address.
     pub fn from(&self) -> Address {
-        self.0.inner.signer()
+        alloy::network::TransactionResponse::from(&self.0)
     }
 
     /// Returns the transaction input data.
@@ -98,7 +98,7 @@ impl Transaction {
     /// Returns the transaction type byte (e.g. 0x00 legacy, 0x02 EIP-1559,
     /// 0x7e OP-stack deposit, 0x6a Orbit system transaction).
     pub fn transaction_type(&self) -> u8 {
-        self.0.inner.tx_type().into()
+        self.0.ty()
     }
 }
 

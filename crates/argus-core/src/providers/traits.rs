@@ -7,7 +7,7 @@ use alloy::{network::AnyRpcBlock, primitives::TxHash};
 use async_trait::async_trait;
 use thiserror::Error;
 
-use crate::models::Log;
+use crate::models::{Log, TransactionReceipt};
 use crate::persistence::error::PersistenceError;
 
 /// Custom error type for data source operations.

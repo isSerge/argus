@@ -1,5 +1,6 @@
 pub mod actions;
 pub mod block;
+pub mod fixtures;
 pub mod log;
 pub mod monitor;
 pub mod monitor_match;

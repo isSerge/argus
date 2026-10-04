@@ -184,9 +184,8 @@ pub fn build_transaction_map(
         }
         FeeFields::Eip1559 { max_fee_per_gas, max_priority_fee_per_gas } => {
             map.insert(KEY_TX_MAX_FEE_PER_GAS.into(), u256_to_bigint_dynamic(max_fee_per_gas));
-            let value = max_priority_fee_per_gas
-                .map(u256_to_bigint_dynamic)
-                .unwrap_or(Dynamic::UNIT);
+            let value =
+                max_priority_fee_per_gas.map(u256_to_bigint_dynamic).unwrap_or(Dynamic::UNIT);
             map.insert(KEY_TX_MAX_PRIORITY_FEE_PER_GAS.into(), value);
         }
         FeeFields::None => {}

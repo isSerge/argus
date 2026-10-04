@@ -140,26 +140,67 @@ impl From<AnyRpcTransaction> for Transaction {
 
 #[cfg(test)]
 mod tests {
-    use alloy::{consensus::TxType, primitives::U256};
+    use alloy::{
+        consensus::TxType,
+        network::AnyRpcTransaction,
+        primitives::{U256, address, b256},
+    };
 
     use super::*;
     use crate::models::transaction_builder::TransactionBuilder;
+    use crate::test_utils::fixtures::{
+        OP_DEPOSIT_RECEIPT_JSON, OP_DEPOSIT_TX_JSON, ORBIT_SYSTEM_TX_JSON,
+    };
 
     #[test]
     fn fee_fields_by_transaction_type() {
-        let legacy = TransactionBuilder::new()
-            .gas_price(U256::from(150))
-            .tx_type(TxType::Legacy)
-            .build();
-        assert_eq!(
-            legacy.fee_fields(),
-            FeeFields::Legacy { gas_price: Some(U256::from(150)) }
-        );
+        let legacy =
+            TransactionBuilder::new().gas_price(U256::from(150)).tx_type(TxType::Legacy).build();
+        assert_eq!(legacy.fee_fields(), FeeFields::Legacy { gas_price: Some(U256::from(150)) });
 
         let eip1559 = TransactionBuilder::new().tx_type(TxType::Eip1559).build();
         assert!(matches!(
             eip1559.fee_fields(),
             FeeFields::Eip1559 { max_fee_per_gas: _, max_priority_fee_per_gas: Some(_) }
         ));
+    }
+
+    #[test]
+    fn parses_op_deposit_transaction() {
+        let tx: Transaction = serde_json::from_str::<AnyRpcTransaction>(OP_DEPOSIT_TX_JSON)
+            .expect("OP-stack deposit tx (0x7e) must parse")
+            .into();
+
+        assert_eq!(tx.transaction_type(), 0x7e);
+        assert_eq!(
+            tx.hash(),
+            b256!("0x233ace96f255608781596edfe1520000bd25b69b122cc101be3abb6689a85322")
+        );
+        assert_eq!(tx.from(), address!("0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001"));
+        assert_eq!(tx.value(), U256::ZERO);
+        assert_eq!(tx.fee_fields(), FeeFields::None);
+    }
+
+    #[test]
+    fn parses_orbit_system_transaction() {
+        let tx: Transaction = serde_json::from_str::<AnyRpcTransaction>(ORBIT_SYSTEM_TX_JSON)
+            .expect("Orbit system tx (0x6a) must parse")
+            .into();
+
+        assert_eq!(tx.transaction_type(), 0x6a);
+        assert!(!tx.input().is_empty(), "system tx carries an L1 message payload");
+        assert_eq!(tx.value(), U256::ZERO);
+        assert_eq!(tx.fee_fields(), FeeFields::None);
+    }
+
+    #[test]
+    fn parses_op_deposit_receipt() {
+        let receipt: crate::models::TransactionReceipt =
+            serde_json::from_str(OP_DEPOSIT_RECEIPT_JSON)
+                .expect("OP-stack deposit receipt (type 0x7e) must parse");
+
+        assert!(receipt.inner.inner.is_success());
+        assert_eq!(receipt.gas_used, 0xb48a);
+        assert_eq!(receipt.effective_gas_price, 0);
     }
 }

@@ -100,6 +100,7 @@ const KEY_TX_NONCE: &str = "nonce";
 const KEY_TX_INPUT: &str = "input";
 const KEY_TX_BLOCK_NUMBER: &str = "block_number";
 const KEY_TX_TRANSACTION_INDEX: &str = "transaction_index";
+const KEY_TX_TRANSACTION_TYPE: &str = "transaction_type";
 const KEY_TX_GAS_PRICE: &str = "gas_price";
 const KEY_TX_MAX_FEE_PER_GAS: &str = "max_fee_per_gas";
 const KEY_TX_MAX_PRIORITY_FEE_PER_GAS: &str = "max_priority_fee_per_gas";
@@ -176,6 +177,8 @@ pub fn build_transaction_map(
     } else {
         map.insert(KEY_TX_TRANSACTION_INDEX.into(), Dynamic::UNIT);
     }
+
+    map.insert(KEY_TX_TRANSACTION_TYPE.into(), (transaction.transaction_type() as i64).into());
 
     match transaction.fee_fields() {
         FeeFields::Legacy { gas_price } => {
@@ -367,6 +370,7 @@ mod tests {
     use alloy::{
         consensus::TxType,
         dyn_abi::Word,
+        network::AnyRpcTransaction,
         primitives::{Address, Function, I256, U256, address, b256},
     };
     use argus_abi::test_utils::LogBuilder;
@@ -622,6 +626,24 @@ mod tests {
         let status = map.get("status").unwrap().clone();
         assert_eq!(status.type_name(), "i64");
         assert_eq!(status.cast::<i64>(), 1);
+    }
+
+    #[test]
+    fn test_transaction_type_exposed() {
+        let legacy = TransactionBuilder::new().tx_type(TxType::Legacy).build();
+        let eip1559 = TransactionBuilder::new().tx_type(TxType::Eip1559).build();
+        let deposit: Transaction = serde_json::from_str::<AnyRpcTransaction>(
+            argus_core::test_utils::fixtures::OP_DEPOSIT_TX_JSON,
+        )
+        .unwrap()
+        .into();
+
+        for (tx, expected) in [(legacy, 0), (eip1559, 2), (deposit, 126)] {
+            let map = build_transaction_map(&tx, None);
+            let ty = map.get("transaction_type").unwrap().clone();
+            assert_eq!(ty.type_name(), "i64");
+            assert_eq!(ty.cast::<i64>(), expected);
+        }
     }
 
     #[test]

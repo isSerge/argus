@@ -17,6 +17,7 @@ The `tx` object is available in **all** monitor scripts. It contains detailed in
 | `input` | String | The transaction input data (calldata). |
 | `block_number` | Integer | The block number the transaction was included in. |
 | `transaction_index` | Integer | The index of the transaction within the block. |
+| `transaction_type` | Integer | The EIP-2718 transaction type byte (e.g. `0` legacy, `2` EIP-1559, `126` for OP-stack deposits). |
 | `gas_price` | BigInt | (Legacy Transactions) The gas price in wei. |
 | `max_fee_per_gas` | BigInt | (EIP-1559) The maximum fee per gas in wei. |
 | `max_priority_fee_per_gas` | BigInt | (EIP-1559) The maximum priority fee per gas in wei. |

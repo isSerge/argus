@@ -1,0 +1,20 @@
+# Monitors BEP-126 fast-finality reward payouts on BNB Smart Chain.
+#
+# The BSCValidatorSet system contract (0x0000...1000) receives ~326 system
+# transactions per 161-block turn (~72s): mostly `deposit(address)` operator
+# maintenance (noise), plus ~2 `distributeFinalityReward` calls that pay
+# fast-finality attestation rewards (one `finalityRewardDeposit` event per
+# validator — ~21 events per distribution, ~0.001 BNB each).
+#
+# Note: the reward calldata itself uses BNB's non-standard packed encoding
+# (length-prefixed inline arrays), so `decoded_call` cannot be used — the
+# standard-encoded per-validator events are the monitorable surface.
+monitors:
+  - name: "BNB Validator Finality Reward Deposits"
+    network: "bnb-smart-chain"
+    address: "0x0000000000000000000000000000000000001000"
+    abi: "bsc_validator_set"
+    filter_script: |
+      log.name == "finalityRewardDeposit"
+    actions:
+      - "stdout-action"

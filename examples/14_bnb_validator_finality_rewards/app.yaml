@@ -1,0 +1,31 @@
+database_url: "sqlite:data/monitor.db"
+
+# BNB Smart Chain runs ~0.45s blocks since the Maxwell hardfork.
+# blockrazor is used because it serves archive-depth blocks/logs for free
+# (publicnode only keeps a short recent window), but caps `eth_getLogs`
+# ranges at 25 blocks — hence log_chunk_size below. bsc-dataseed rejects
+# `eth_getLogs` entirely.
+rpc_urls:
+  - "https://bsc.blockrazor.xyz"
+
+network_id: "bnb-smart-chain"
+abi_config_path: abis/
+
+# Catch-up from `latest - 400` (~3 min of chain time) covers at least one
+# validator turn (161 blocks), guaranteeing reward payouts on a fresh DB.
+initial_start_block: -400
+
+# Fast-chain tuning (BNB = ~450ms blocks):
+# - expected_block_time_ms 450 lets live polling track the chain (~1-block
+#   latency); the calibrator warns if actual block time drifts.
+# - polling_interval_ms acts as the ceiling for the adaptive interval.
+# - block_chunk_size 20 keeps batches ~9s of chain time.
+# - log_chunk_size 25 matches the provider's eth_getLogs range cap.
+# - confirmation_blocks 15 ≈ 7s (see docs confirmation-depth table).
+block_chunk_size: 20
+log_chunk_size: 25
+polling_interval_ms: 1000
+expected_block_time_ms: 450
+confirmation_blocks: 15
+
+notification_channel_capacity: 1024

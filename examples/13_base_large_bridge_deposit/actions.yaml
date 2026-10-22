@@ -1,0 +1,17 @@
+# This example uses the stdout action for console output, perfect for testing and development.
+# For production use, you can configure other actions like Slack, Discord, Telegram, or webhooks.
+# See the documentation for all available action types:
+# https://github.com/isSerge/argus-rs/blob/main/docs/src/user_guide/actions_yaml.md
+
+actions:
+  - name: "stdout-action"
+    stdout:
+      message:
+        title: "Large ETH Bridge-In on Base"
+        body: |
+          An L1→L2 ETH bridge deposit of over 10 ETH was finalized
+          by monitor {{ monitor_name }}.
+          - From (L1): `{{ log.params.from }}`
+          - To (L2): `{{ log.params.to }}`
+          - Amount: `{{ log.params.amount | ether }} ETH`
+          [View on Basescan](https://basescan.org/tx/{{ transaction_hash }})

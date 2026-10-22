@@ -1,0 +1,17 @@
+# Monitors the canonical L1→L2 bridge on Base. The L2StandardBridge lives at
+# the OP-stack system address 0x4200...0010 (same on every OP-stack chain).
+#
+# Why a log monitor instead of `tx.transaction_type == 126 && tx.value > X`?
+# On Base almost all L1→L2 ETH moves through the WETH path: the per-block
+# `0x7e` deposit transactions carry `value == 0` and the actual mint happens
+# inside bridge calldata. The `ETHBridgeFinalized` event is the reliable
+# signal for "ETH arrived on L2".
+monitors:
+  - name: "Large L1-to-L2 ETH Bridge Deposits on Base"
+    network: "base"
+    address: "0x4200000000000000000000000000000000000010"
+    abi: "standard_bridge"
+    filter_script: |
+      log.name == "ETHBridgeFinalized" && log.params.amount > ether(10)
+    actions:
+      - "stdout-action"

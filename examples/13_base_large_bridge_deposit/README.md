@@ -22,8 +22,9 @@ bridge bot moving funds in ~6h intervals).
 ### Configuration Files
 
 - [`app.yaml`](./app.yaml): Base-tuned application configuration (2s blocks,
-  bloXroute archive RPC — public endpoints like publicnode only keep a short
-  recent window and `mainnet.base.org` rate-limits `eth_getLogs`).
+  dRPC archive RPC — public endpoints like publicnode/bloXroute are unreliable
+  for archive-depth queries, and `mainnet.base.org` rate-limits
+  `eth_getLogs`).
 - [`monitors.yaml`](./monitors.yaml): Log monitor on the L2StandardBridge with
   the [`standard_bridge`](../../abis/standard_bridge.json) ABI.
 - [`actions.yaml`](./actions.yaml): Stdout action with a bridge-deposit message.

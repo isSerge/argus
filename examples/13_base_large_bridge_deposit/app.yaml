@@ -1,11 +1,13 @@
 database_url: "sqlite:data/monitor.db"
 
-# Base is a 2s-block OP-stack rollup. The bloXroute public endpoint is used
-# because it serves archive-depth blocks/logs for free with generous
-# `eth_getLogs` ranges (publicnode only keeps a short recent window and
-# mainnet.base.org rate-limits `eth_getLogs`).
+# Base is a 2s-block OP-stack rollup. The dRPC public endpoint is used
+# because it serves archive-depth blocks/logs with consistent behavior
+# (bloXroute's gateway rejects ranges from datacenter IPs such as CI,
+# publicnode only keeps a short recent window and mainnet.base.org
+# rate-limits `eth_getLogs`). It caps `eth_getLogs` ranges at ~100 blocks,
+# hence log_chunk_size below.
 rpc_urls:
-  - "https://base.rpc.blxrbdn.com"
+  - "https://base.drpc.org"
 
 network_id: "base"
 abi_config_path: abis/
@@ -19,8 +21,10 @@ initial_start_block: -200
 #   and lets the block-time calibrator warn if the setting drifts from reality.
 # - polling_interval_ms acts as the ceiling for the adaptive interval.
 # - block_chunk_size 10 keeps batches ~20s of chain time.
+# - log_chunk_size 100 matches the provider's eth_getLogs range cap.
 # - confirmation_blocks 15 ≈ 30s on Base (see docs confirmation-depth table).
 block_chunk_size: 10
+log_chunk_size: 100
 polling_interval_ms: 2000
 expected_block_time_ms: 2000
 confirmation_blocks: 15

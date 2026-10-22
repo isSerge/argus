@@ -1,8 +1,11 @@
 database_url: "sqlite:data/monitor.db"
 
 # Robinhood Chain (chain ID 4663) is an Arbitrum Orbit rollup with ~100ms
-# blocks — the fastest chain this examples set covers.
+# blocks — the fastest chain this examples set covers. The official chain
+# RPC serves full history; publicnode is kept as fallback (but only keeps a
+# short recent window).
 rpc_urls:
+  - "https://rpc.mainnet.chain.robinhood.com"
   - "https://robinhood-rpc.publicnode.com"
 
 network_id: "robinhood-chain"

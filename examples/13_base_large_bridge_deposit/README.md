@@ -49,17 +49,19 @@ monitors:
 
 ### How to Run (Dry-Run Mode)
 
-Test against a historical window containing three ≥ 10 ETH bridge-ins
-(84.21, 82.18 and 80.86 ETH):
+Test against a tight historical window containing one large bridge-in (84.21
+ETH at block 52911844, one of three ≥ 10 ETH events found in a 24h RPC
+probe — the others landed at blocks 52914137 and 52919645):
 
 ```bash
-cargo run --release -- dry-run --from 52911840 --to 52919700 --config-dir examples/13_base_large_bridge_deposit/
+cargo run --release -- dry-run --from 52911840 --to 52911900 --config-dir examples/13_base_large_bridge_deposit/
 ```
 
-Expected output: 3 matches from monitor
-"Large L1-to-L2 ETH Bridge Deposits on Base" at blocks 52911844, 52914137 and
-52919645, each dispatched to `stdout-action`. (The range spans ~7,900 blocks
-— a few minutes of processing.)
+Expected output: 1 match from monitor "Large L1-to-L2 ETH Bridge Deposits on
+Base" at block 52911844 (tx
+`0x2a0525aa49950dbeaaa4da19641a2fa5444d0072eb315bdc54e3e28ce18d8613`),
+dispatched to `stdout-action`. Widen the range to `--to 52919700` to capture
+all three events (~7,900 blocks).
 
 ### How to Run (Default Mode)
 

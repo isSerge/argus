@@ -1,0 +1,13 @@
+# Watches Robinhood Chain get built: alerts on every contract deployment.
+#
+# A plain transaction monitor (no address/abi): creation transactions have no
+# `to` field, which the Rhai tx context exposes as the unit value `()`.
+# At ~100ms blocks the chain produces a handful of deploys per thousand
+# blocks — expect a steady drip of alerts while the ecosystem bootstraps.
+monitors:
+  - name: "New Contract Deployments on Robinhood Chain"
+    network: "robinhood-chain"
+    filter_script: |
+      tx.to == ()
+    actions:
+      - "stdout-action"

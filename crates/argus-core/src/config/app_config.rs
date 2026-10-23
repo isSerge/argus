@@ -10,7 +10,8 @@ use url::Url;
 use super::{
     BaseHttpClientConfig, HttpRetryConfig, OutboxConfig, RhaiConfig, RpcRetryConfig, ServerConfig,
     deserialize_duration_from_ms, deserialize_duration_from_ms_opt,
-    deserialize_duration_from_seconds, deserialize_urls, initial_start_block::InitialStartBlock,
+    deserialize_duration_from_seconds, deserialize_urls, env_expansion,
+    initial_start_block::InitialStartBlock,
 };
 use crate::models::NetworkId;
 
@@ -172,7 +173,13 @@ impl AppConfig {
             .add_source(File::with_name(&format!("{}/app.yaml", config_dir_str)))
             .add_source(Environment::with_prefix("ARGUS").separator("__"))
             .build()?;
-        let mut config: Self = s.try_deserialize()?;
+
+        // Interpolate environment variable references in string values after
+        // all sources are merged, then deserialize the expanded tree.
+        let raw = s.try_deserialize::<serde_json::Value>()?;
+        let expanded = env_expansion::expand_env_vars(raw)?;
+        let mut config: Self =
+            serde_json::from_value(expanded).map_err(|e| ConfigError::Message(e.to_string()))?;
 
         let config_path = Path::new(config_dir_str);
 
@@ -365,8 +372,11 @@ mod tests {
         assert_eq!(config.http_base_config.connect_timeout, Duration::from_secs(20));
     }
 
+    static ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_app_config_from_file_with_env_var_override() {
+        let _env_guard = ENV_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let config_content = r#"
         database_url: "sqlite::memory:"
         rpc_urls:
@@ -394,6 +404,42 @@ mod tests {
 
         unsafe {
             std::env::remove_var("ARGUS__RPC_URLS");
+        }
+    }
+
+    #[test]
+    fn test_app_config_from_file_with_env_interpolation() {
+        let _env_guard = ENV_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let config_content = r#"
+database_url: "sqlite::memory:"
+rpc_urls:
+  - "${RPC_URL_TEST_OVERRIDE:-http://default:8545}"
+network_id: "testnet"
+confirmation_blocks: 12
+block_chunk_size: 0
+polling_interval_ms: 10000
+abi_config_path: abis/
+"#;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let app_yaml_path = temp_dir.path().join("app.yaml");
+        std::fs::write(&app_yaml_path, config_content).unwrap();
+        let temp_dir_path = temp_dir.path();
+
+        unsafe {
+            std::env::remove_var("RPC_URL_TEST_OVERRIDE");
+        }
+        let config = AppConfig::new(Some(temp_dir_path.to_str().unwrap())).unwrap();
+        assert_eq!(config.rpc_urls.len(), 1);
+        assert_eq!(config.rpc_urls[0].to_string(), "http://default:8545/");
+
+        unsafe {
+            std::env::set_var("RPC_URL_TEST_OVERRIDE", "http://override:8545");
+        }
+        let config = AppConfig::new(Some(temp_dir_path.to_str().unwrap())).unwrap();
+        assert_eq!(config.rpc_urls[0].to_string(), "http://override:8545/");
+
+        unsafe {
+            std::env::remove_var("RPC_URL_TEST_OVERRIDE");
         }
     }
 }

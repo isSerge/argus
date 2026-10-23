@@ -1,6 +1,7 @@
 //! Configuration module for Argus.
 
 mod app_config;
+mod env_expansion;
 mod helpers;
 mod http_base;
 mod http_retry;

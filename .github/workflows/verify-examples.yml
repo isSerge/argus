@@ -33,8 +33,11 @@ jobs:
 
       - name: Run examples
         env:
-          # Use specific RPC URLs to avoid rate limiting issues in CI.
-          ARGUS__RPC_URLS: ${{ secrets.ARGUS__RPC_URLS }}
+          # Keyed archive-capable RPC endpoints (comma-separated lists work).
+          RPC_URL_ETHEREUM: ${{ secrets.RPC_URL_ETHEREUM }}
+          RPC_URL_BASE: ${{ secrets.RPC_URL_BASE }}
+          RPC_URL_BNB_SMART_CHAIN: ${{ secrets.RPC_URL_BNB_SMART_CHAIN }}
+          RPC_URL_ROBINHOOD_CHAIN: ${{ secrets.RPC_URL_ROBINHOOD_CHAIN }}
         run: |
           chmod +x ./run_examples.sh
           ./run_examples.sh

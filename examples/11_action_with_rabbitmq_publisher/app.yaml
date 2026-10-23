@@ -1,6 +1,6 @@
 database_url: "sqlite:data/monitor.db"
 rpc_urls:
-  - "https://eth.llamarpc.com"
+  - "${RPC_URL_ETHEREUM:-https://eth.llamarpc.com}"
   - "https://1rpc.io/eth"
   - "https://rpc.mevblocker.io"
 network_id: "ethereum"

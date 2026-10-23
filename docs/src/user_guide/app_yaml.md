@@ -118,6 +118,28 @@ receipts) expose the usual fields.
 
 ---
 
+### Environment Variable Interpolation
+
+String values in `app.yaml` support POSIX-style environment variable
+interpolation with the same syntax and semantics as Docker Compose:
+
+| Syntax | Value used |
+| :--- | :--- |
+| `${VAR}` | `$VAR`; config load fails if `VAR` is unset |
+| `${VAR:-default}` | `default` if `VAR` is unset **or empty**, otherwise `$VAR` |
+| `${VAR-default}` | `default` if `VAR` is unset (an empty value is kept) |
+| `$$` | A literal `$` |
+
+Interpolation applies recursively to every string value in the file after all
+sources are merged, so it composes with any field — endpoints, paths,
+credentials:
+
+```yaml
+rpc_urls:
+  - "${RPC_URL_ETHEREUM:-https://eth.llamarpc.com}"
+database_url: "${DATABASE_URL:-sqlite:data/monitor.db}"
+```
+
 ### Nested Configuration Sections
 
 The following configurations are nested under their respective top-level keys in `app.yaml`.

@@ -6,7 +6,7 @@ database_url: "sqlite:data/monitor.db"
 # ranges at 25 blocks — hence log_chunk_size below. bsc-dataseed rejects
 # `eth_getLogs` entirely.
 rpc_urls:
-  - "https://bsc.blockrazor.xyz"
+  - "${RPC_URL_BNB_SMART_CHAIN:-https://bsc.blockrazor.xyz}"
 
 network_id: "bnb-smart-chain"
 abi_config_path: abis/
@@ -20,10 +20,11 @@ initial_start_block: -400
 #   latency); the calibrator warns if actual block time drifts.
 # - polling_interval_ms acts as the ceiling for the adaptive interval.
 # - block_chunk_size 20 keeps batches ~9s of chain time.
-# - log_chunk_size 25 matches the provider's eth_getLogs range cap.
+# - log_chunk_size 10 matches the strictest provider cap (Alchemy
+#   free-tier eth_getLogs ranges are limited to 10 blocks).
 # - confirmation_blocks 15 ≈ 7s (see docs confirmation-depth table).
 block_chunk_size: 20
-log_chunk_size: 25
+log_chunk_size: 10
 polling_interval_ms: 1000
 expected_block_time_ms: 450
 confirmation_blocks: 15

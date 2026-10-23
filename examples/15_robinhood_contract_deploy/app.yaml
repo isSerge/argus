@@ -5,7 +5,7 @@ database_url: "sqlite:data/monitor.db"
 # RPC serves full history; publicnode is kept as fallback (but only keeps a
 # short recent window).
 rpc_urls:
-  - "https://rpc.mainnet.chain.robinhood.com"
+  - "${RPC_URL_ROBINHOOD_CHAIN:-https://rpc.mainnet.chain.robinhood.com}"
   - "https://robinhood-rpc.publicnode.com"
 
 network_id: "robinhood-chain"
@@ -18,9 +18,12 @@ initial_start_block: -1000
 # - expected_block_time_ms 100 makes live polling track the chain; the
 #   effective poll interval is clamped to [250ms, polling_interval_ms].
 # - block_chunk_size 30 keeps batches ~3s of chain time.
+# - log_chunk_size 10 matches the strictest provider cap (Alchemy
+#   free-tier eth_getLogs ranges are limited to 10 blocks).
 # - confirmation_blocks 20 ≈ 2s: Orbit chains have no mempool reorgs; this
 #   only pads against sequencer-feed quirks (see docs confirmation table).
 block_chunk_size: 30
+log_chunk_size: 10
 polling_interval_ms: 500
 expected_block_time_ms: 100
 confirmation_blocks: 20

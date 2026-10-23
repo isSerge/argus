@@ -1,0 +1,28 @@
+database_url: "sqlite:data/monitor.db"
+
+# Robinhood Chain (chain ID 4663) is an Arbitrum Orbit rollup with ~100ms
+# blocks — the fastest chain this examples set covers. The official chain
+# RPC serves full history; publicnode is kept as fallback (but only keeps a
+# short recent window).
+rpc_urls:
+  - "https://rpc.mainnet.chain.robinhood.com"
+  - "https://robinhood-rpc.publicnode.com"
+
+network_id: "robinhood-chain"
+abi_config_path: abis/
+
+# Start close to the tip: catch-up from `latest - 1000` (~2 min of chain time).
+initial_start_block: -1000
+
+# Fast-chain tuning (Robinhood = ~100ms blocks):
+# - expected_block_time_ms 100 makes live polling track the chain; the
+#   effective poll interval is clamped to [250ms, polling_interval_ms].
+# - block_chunk_size 30 keeps batches ~3s of chain time.
+# - confirmation_blocks 20 ≈ 2s: Orbit chains have no mempool reorgs; this
+#   only pads against sequencer-feed quirks (see docs confirmation table).
+block_chunk_size: 30
+polling_interval_ms: 500
+expected_block_time_ms: 100
+confirmation_blocks: 20
+
+notification_channel_capacity: 1024

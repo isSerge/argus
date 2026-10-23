@@ -1,0 +1,64 @@
+[
+    {
+        "type": "event",
+        "name": "ETHBridgeInitiated",
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "from",
+                "type": "address",
+                "indexed": true
+            },
+            {
+                "internalType": "address",
+                "name": "to",
+                "type": "address",
+                "indexed": true
+            },
+            {
+                "internalType": "uint256",
+                "name": "amount",
+                "type": "uint256",
+                "indexed": false
+            },
+            {
+                "internalType": "bytes",
+                "name": "extraData",
+                "type": "bytes",
+                "indexed": false
+            }
+        ],
+        "anonymous": false
+    },
+    {
+        "type": "event",
+        "name": "ETHBridgeFinalized",
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "from",
+                "type": "address",
+                "indexed": true
+            },
+            {
+                "internalType": "address",
+                "name": "to",
+                "type": "address",
+                "indexed": true
+            },
+            {
+                "internalType": "uint256",
+                "name": "amount",
+                "type": "uint256",
+                "indexed": false
+            },
+            {
+                "internalType": "bytes",
+                "name": "extraData",
+                "type": "bytes",
+                "indexed": false
+            }
+        ],
+        "anonymous": false
+    }
+]

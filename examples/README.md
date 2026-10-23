@@ -22,6 +22,9 @@ Argus EVM Monitor.
 - [10. Action with Kafka Publisher](./10_action_with_kafka_publisher/README.md): This example demonstrates how to configure and use a `kafka` action to send notifications to a Kafka topic.
 - [11. Action with RabbitMQ Publisher](./11_action_with_rabbitmq_publisher/README.md): This example demonstrates how to configure and use a `rabbitmq` action to send notifications to a RabbitMQ exchange.
 - [12. Action with NATS Publisher](./12_action_with_nats_publisher/README.md): This example demonstrates how to configure and use a `nats` action to send notifications to a NATS subject.
+- [13. Large L1→L2 Bridge Deposit on Base](./13_base_large_bridge_deposit/README.md): This chain-specific example monitors `ETHBridgeFinalized` events on Base's L2 StandardBridge for bridge-ins over 10 ETH.
+- [14. BNB Validator Finality Reward Deposits](./14_bnb_validator_finality_rewards/README.md): This chain-specific example watches `finalityRewardDeposit` events on BNB's `BSCValidatorSet` system contract — a heartbeat of BNB's BEP-126 fast-finality machinery.
+- [15. New Contract Deployments on Robinhood Chain](./15_robinhood_contract_deploy/README.md): This example watches contract creations on the newest, fastest chain covered here (~100ms Arbitrum Orbit blocks).
 
 ---
 

@@ -1,0 +1,21 @@
+[
+    {
+        "type": "event",
+        "name": "finalityRewardDeposit",
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "validator",
+                "type": "address",
+                "indexed": true
+            },
+            {
+                "internalType": "uint256",
+                "name": "amount",
+                "type": "uint256",
+                "indexed": false
+            }
+        ],
+        "anonymous": false
+    }
+]

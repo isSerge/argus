@@ -5,7 +5,7 @@ database_url: "sqlite:data/monitor.db"
 # RPC serves full history; publicnode is kept as fallback (but only keeps a
 # short recent window).
 rpc_urls:
-  - "https://rpc.mainnet.chain.robinhood.com"
+  - "${RPC_URL_ROBINHOOD_CHAIN:-https://rpc.mainnet.chain.robinhood.com}"
   - "https://robinhood-rpc.publicnode.com"
 
 network_id: "robinhood-chain"

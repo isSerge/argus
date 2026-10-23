@@ -6,7 +6,7 @@ database_url: "sqlite:data/monitor.db"
 # ranges at 25 blocks — hence log_chunk_size below. bsc-dataseed rejects
 # `eth_getLogs` entirely.
 rpc_urls:
-  - "https://bsc.blockrazor.xyz"
+  - "${RPC_URL_BNB_SMART_CHAIN:-https://bsc.blockrazor.xyz}"
 
 network_id: "bnb-smart-chain"
 abi_config_path: abis/

@@ -7,7 +7,7 @@ database_url: "sqlite:data/monitor.db"
 # rate-limits `eth_getLogs`). It caps `eth_getLogs` ranges at ~100 blocks,
 # hence log_chunk_size below.
 rpc_urls:
-  - "https://base.drpc.org"
+  - "${RPC_URL_BASE:-https://base.drpc.org}"
 
 network_id: "base"
 abi_config_path: abis/

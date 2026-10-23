@@ -5,7 +5,7 @@
 # contains the expected dry-run report format. If any command fails or doesn't
 # produce the expected output format, the script exits with an error.
 
-export RUST_LOG=debug
+export RUST_LOG=warn
 set -e
 
 EXAMPLES_DIR="examples"
